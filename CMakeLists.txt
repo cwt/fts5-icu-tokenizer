@@ -19,7 +19,8 @@ set(LOCALE "" CACHE STRING "The locale for the ICU tokenizer (e.g., th, cn, ja)"
 if(LOCALE)
   set(LIB_SUFFIX "_${LOCALE}")
   set(TOKENIZER_NAME "icu_${LOCALE}")
-  set(C_INIT_SUFFIX ${LOCALE})
+  # Sanitize the locale for the C function name, replacing hyphens with underscores.
+  string(REPLACE "-" "_" C_INIT_SUFFIX "${LOCALE}")
 else()
   set(LIB_SUFFIX "")
   set(TOKENIZER_NAME "icu")

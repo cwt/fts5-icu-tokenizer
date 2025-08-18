@@ -4,6 +4,11 @@ cmake_minimum_required(VERSION 3.10)
 # Define the project name, version, and language
 project(fts5-icu-tokenizer VERSION 3.0 LANGUAGES C)
 
+# Set policy to allow using _ROOT variables
+if(POLICY CMP0074)
+  cmake_policy(SET CMP0074 NEW)
+endif()
+
 # Set the C standard to C11
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -39,7 +44,27 @@ message(STATUS "Registered FTS5 tokenizer name will be: '${TOKENIZER_NAME}'")
 find_package(ICU REQUIRED COMPONENTS i18n uc)
 
 # Find the SQLite3 library.
-find_package(SQLite3 REQUIRED)
+if(WIN32)
+  # On Windows, we might need to specify SQLite3 paths explicitly
+  if(DEFINED SQLite3_INCLUDE_DIR AND DEFINED SQLite3_LIBRARY)
+    # Use the explicitly provided paths
+    set(SQLite3_FOUND TRUE)
+  else()
+    # Try to find SQLite3 using default mechanisms
+    find_package(SQLite3)
+  endif()
+else()
+  find_package(SQLite3 REQUIRED)
+endif()
+
+# If SQLite3 wasn't found, provide better error message on Windows
+if(NOT SQLite3_FOUND)
+  if(WIN32)
+    message(FATAL_ERROR "SQLite3 not found. Please specify paths using -DSQLite3_INCLUDE_DIR=... and -DSQLite3_LIBRARY=...")
+  else()
+    message(FATAL_ERROR "SQLite3 not found")
+  endif()
+endif()
 
 # --- Configure the Library ---
 
@@ -63,7 +88,17 @@ target_compile_definitions(fts5_icu PRIVATE
 
 # Link the library against the libraries found by CMake.
 # This adds the necessary include directories and linker flags.
-target_link_libraries(fts5_icu PRIVATE ICU::i18n ICU::uc SQLite::SQLite3)
+if(WIN32 AND DEFINED SQLite3_INCLUDE_DIR AND DEFINED SQLite3_LIBRARY)
+  # Create an imported target for SQLite3 on Windows
+  add_library(SQLite3::SQLite3 UNKNOWN IMPORTED)
+  set_target_properties(SQLite3::SQLite3 PROPERTIES
+    IMPORTED_LOCATION "${SQLite3_LIBRARY}"
+    INTERFACE_INCLUDE_DIRECTORIES "${SQLite3_INCLUDE_DIR}"
+  )
+  target_link_libraries(fts5_icu PRIVATE ICU::i18n ICU::uc SQLite3::SQLite3)
+else()
+  target_link_libraries(fts5_icu PRIVATE ICU::i18n ICU::uc SQLite::SQLite3)
+endif()
 
 # On Windows, we need to define SQLITE_ENABLE_FTS5
 if(WIN32)

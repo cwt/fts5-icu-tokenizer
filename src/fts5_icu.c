@@ -24,6 +24,7 @@
 #include <unicode/ubrk.h>
 #include <unicode/ustring.h>
 #include <unicode/uchar.h>
+#include <unicode/utrans.h>
 
 /*
 ** These macros are passed in by CMake. They default to "" and "icu" if not defined.
@@ -173,6 +174,18 @@ static int icuTokenize(
     return SQLITE_ERROR;
   }
 
+  UTransliterator *trans = utrans_openU(u"NFKD; [:Nonspacing Mark:] Remove; Greek-Latin; Latin-ASCII; Lower; NFKC; Traditional-Simplified; Katakana-Hiragana", -1, UTRANS_FORWARD, NULL, 0, NULL, &status);
+  if (U_FAILURE(status))
+  {
+      sqlite3_free(pUText);
+      sqlite3_free(pMap);
+      return SQLITE_ERROR;
+  }
+  UChar buf[256];
+  int32_t nBuf = 256;
+  char dest[512];
+  int32_t nDest = 512;
+
   // Loop through boundaries and emit tokens
   int32_t iPrev = ubrk_first(pTokenizer->pBreakIterator);
   int32_t iNext;
@@ -188,10 +201,35 @@ static int icuTokenize(
     int nTokenByte = iEndByte - iStartByte;
 
     if( nTokenByte > 0 ){
-      int rc = xToken(pCtx, 0, &pText[iStartByte], nTokenByte, iStartByte, iEndByte);
+      int nByte = iNext - iPrev;
+      if (nByte > nBuf)
+          nByte = nBuf;
+      u_strncpy(buf, pUText + iPrev, nByte);
+      int32_t limit = nByte;
+      utrans_transUChars(trans, buf, &nByte, nBuf, 0, &limit, &status);
+      if (U_FAILURE(status))
+      {
+        sqlite3_free(pUText);
+        sqlite3_free(pMap);
+        utrans_close(trans);
+        return SQLITE_ERROR;
+      }
+      nByte = limit;
+      u_strToUTF8WithSub(dest, nDest, &nByte, buf, nByte, 0xFFFD, NULL, &status);
+      if (U_FAILURE(status))
+      {
+        sqlite3_free(pUText);
+        sqlite3_free(pMap);
+        utrans_close(trans);
+        return SQLITE_ERROR;
+      }
+      if (nByte > nDest)
+          nByte = nDest;
+      int rc = xToken(pCtx, 0, dest, nByte, iStartByte, iEndByte);
       if( rc != SQLITE_OK ){
         sqlite3_free(pUText);
         sqlite3_free(pMap);
+        utrans_close(trans);
         return rc;
       }
     }
@@ -200,6 +238,7 @@ static int icuTokenize(
 
   sqlite3_free(pUText);
   sqlite3_free(pMap);
+  utrans_close(trans);
 
   return SQLITE_OK;
 }

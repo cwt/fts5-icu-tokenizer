@@ -174,7 +174,7 @@ static int icuTokenize(
     return SQLITE_ERROR;
   }
 
-  UTransliterator *trans = utrans_openU(u"NFKD; [:Nonspacing Mark:] Remove;Hangul-Latin; Greek-Latin; Latin-ASCII; Lower; NFKC; Traditional-Simplified; Katakana-Hiragana", -1, UTRANS_FORWARD, NULL, 0, NULL, &status);
+  UTransliterator *trans = utrans_openU(u"NFKD; [:Nonspacing Mark:] Remove; Greek-Latin; Latin-ASCII; Lower; NFKC; Traditional-Simplified; Katakana-Hiragana", -1, UTRANS_FORWARD, NULL, 0, NULL, &status);
   if (U_FAILURE(status))
   {
       sqlite3_free(pUText);

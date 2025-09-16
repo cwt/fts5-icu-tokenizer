@@ -20,22 +20,64 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 # Defaults to "" for a generic, universal word breaker.
 set(LOCALE "" CACHE STRING "The locale for the ICU tokenizer (e.g., th, cn, ja)")
 
+# Handle special case for Chinese and Japanese locales
+if(LOCALE STREQUAL "cn")
+  message(WARNING "Chinese locale 'cn' is being mapped to 'zh' for ICU compatibility")
+  set(LOCALE "zh")
+elseif(LOCALE STREQUAL "jp")
+  message(WARNING "Japanese locale 'jp' is being mapped to 'ja' for ICU compatibility")
+  set(LOCALE "ja")
+endif()
+
 # Construct the library suffix and tokenizer name based on the LOCALE variable.
 if(LOCALE)
   set(LIB_SUFFIX "_${LOCALE}")
   set(TOKENIZER_NAME "icu_${LOCALE}")
   # Sanitize the locale for the C function name, replacing hyphens with underscores.
-  string(REPLACE "-" "_" C_INIT_SUFFIX "${LOCALE}")
+  # For the function name, we don't want the leading underscore
+  string(REPLACE "-" "_" C_INIT_SUFFIX_NO_UNDERSCORE "${LOCALE}")
+  set(C_INIT_SUFFIX "_${C_INIT_SUFFIX_NO_UNDERSCORE}")
 else()
   set(LIB_SUFFIX "")
   set(TOKENIZER_NAME "icu")
   set(C_INIT_SUFFIX "") # Pass an empty suffix for the default case
+  set(C_INIT_SUFFIX_NO_UNDERSCORE "") # Pass an empty suffix for the default case
 endif()
 
 message(STATUS "Building tokenizer for locale: '${LOCALE}'")
 message(STATUS "Library name will be: fts5_icu${LIB_SUFFIX}")
 message(STATUS "Registered FTS5 tokenizer name will be: '${TOKENIZER_NAME}'")
 
+# Store locale-specific definitions to be applied after target creation
+if(LOCALE STREQUAL "ja" OR LOCALE STREQUAL "jp")
+  set(LOCALE_DEFINITIONS TOKENIZER_LOCALE_JA)
+  set(FUNCTION_SUFFIX _ja)
+elseif(LOCALE STREQUAL "zh")
+  set(LOCALE_DEFINITIONS TOKENIZER_LOCALE_ZH)
+  set(FUNCTION_SUFFIX _zh)
+elseif(LOCALE STREQUAL "cn")
+  # For 'cn', we still want the Chinese rules but with 'cn' function name
+  set(LOCALE_DEFINITIONS TOKENIZER_LOCALE_ZH)
+  set(FUNCTION_SUFFIX _cn)
+elseif(LOCALE STREQUAL "th")
+  set(LOCALE_DEFINITIONS TOKENIZER_LOCALE_TH)
+  set(FUNCTION_SUFFIX _th)
+elseif(LOCALE STREQUAL "ko" OR LOCALE STREQUAL "kr")
+  set(LOCALE_DEFINITIONS TOKENIZER_LOCALE_KO)
+  set(FUNCTION_SUFFIX _ko)
+elseif(LOCALE STREQUAL "ar")
+  set(LOCALE_DEFINITIONS TOKENIZER_LOCALE_AR)
+  set(FUNCTION_SUFFIX _ar)
+elseif(LOCALE STREQUAL "ru")
+  set(LOCALE_DEFINITIONS TOKENIZER_LOCALE_RU)
+  set(FUNCTION_SUFFIX _ru)
+elseif(LOCALE STREQUAL "he" OR LOCALE STREQUAL "iw")
+  set(LOCALE_DEFINITIONS TOKENIZER_LOCALE_HE)
+  set(FUNCTION_SUFFIX _he)
+elseif(LOCALE STREQUAL "el" OR LOCALE STREQUAL "gr")
+  set(LOCALE_DEFINITIONS TOKENIZER_LOCALE_EL)
+  set(FUNCTION_SUFFIX _el)
+endif()
 
 # --- Find Dependencies ---
 
@@ -84,7 +126,27 @@ target_compile_definitions(fts5_icu PRIVATE
   "TOKENIZER_LOCALE=\"${LOCALE}\""
   "TOKENIZER_NAME=\"${TOKENIZER_NAME}\""
   "INIT_LOCALE_SUFFIX=${C_INIT_SUFFIX}"
+  "C_INIT_SUFFIX_NO_UNDERSCORE=${C_INIT_SUFFIX_NO_UNDERSCORE}"
 )
+
+# Define locale-specific macros for compile-time selection
+if(LOCALE STREQUAL "ja" OR LOCALE STREQUAL "jp")
+  target_compile_definitions(fts5_icu PRIVATE TOKENIZER_LOCALE_JA)
+elseif(LOCALE STREQUAL "zh" OR LOCALE STREQUAL "cn")
+  target_compile_definitions(fts5_icu PRIVATE TOKENIZER_LOCALE_ZH)
+elseif(LOCALE STREQUAL "th")
+  target_compile_definitions(fts5_icu PRIVATE TOKENIZER_LOCALE_TH)
+elseif(LOCALE STREQUAL "ko" OR LOCALE STREQUAL "kr")
+  target_compile_definitions(fts5_icu PRIVATE TOKENIZER_LOCALE_KO)
+elseif(LOCALE STREQUAL "ar")
+  target_compile_definitions(fts5_icu PRIVATE TOKENIZER_LOCALE_AR)
+elseif(LOCALE STREQUAL "ru")
+  target_compile_definitions(fts5_icu PRIVATE TOKENIZER_LOCALE_RU)
+elseif(LOCALE STREQUAL "he" OR LOCALE STREQUAL "iw")
+  target_compile_definitions(fts5_icu PRIVATE TOKENIZER_LOCALE_HE)
+elseif(LOCALE STREQUAL "el" OR LOCALE STREQUAL "gr")
+  target_compile_definitions(fts5_icu PRIVATE TOKENIZER_LOCALE_EL)
+endif()
 
 # Link the library against the libraries found by CMake.
 # This adds the necessary include directories and linker flags.

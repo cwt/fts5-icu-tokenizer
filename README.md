@@ -17,36 +17,21 @@ Before you begin, ensure you have the following installed on your system:
 
 This project uses a standard CMake build process. The target locale can be specified using the `LOCALE` variable.
 
-### 1. Create a build directory
+### Quick Build and Test
 
-It's best practice to build the project in a separate directory.
-
-```bash
-mkdir build
-cd build
-```
-
-### 2. Configure the project with CMake
-
-This step generates the native build files (e.g., Makefiles). You can specify the locale here.
-
-**Example for Thai (`th`):** This will produce `fts5_icu_th.so` and register the tokenizer as `icu_th`.
+For convenience, this project includes scripts to build and test all supported locales:
 
 ```bash
-cmake .. -DLOCALE=th
+# Build all tokenizers
+./scripts/build_all.sh
+
+# Test all tokenizers
+./scripts/test_all.sh
 ```
 
-**Example for Chinese (`cn`):** This will produce `fts5_icu_cn.so` and register the tokenizer as `icu_cn`.
+For detailed information about building and testing, see [docs/BUILD_TEST_README.md](docs/BUILD_TEST_README.md).
 
-```bash
-cmake .. -DLOCALE=cn
-```
-
-**Example for a Universal Tokenizer:** If you omit the `LOCALE` option, it will build a generic tokenizer named `fts5_icu.so` that uses the default ICU word breaker and registers as `icu`.
-
-```bash
-cmake ..
-```
+For information about the project structure, see [docs/PROJECT_STRUCTURE.md](docs/PROJECT_STRUCTURE.md).
 
 ### 3. Compile the project
 
@@ -241,3 +226,137 @@ INSERT INTO documents(content) VALUES ('甜蜜蜜,你笑得甜蜜蜜-หวา�
 SELECT * FROM documents WHERE documents MATCH 'หวาน';
 SELECT * FROM documents WHERE documents MATCH '甜蜜蜜';
 ```
+
+## Locale Name Mappings
+
+For compatibility with common usage, this project supports alternative locale codes:
+
+1. **Mapped with warnings** (the alias is converted to the standard code):
+   - **Chinese**: `cn` → `zh` (with warning)
+   - **Japanese**: `jp` → `ja` (with warning)
+
+2. **Direct support** (both codes work without mapping or warnings):
+   - **Korean**: `kr` ↔ `ko`
+   - **Hebrew**: `iw` ↔ `he`
+   - **Greek**: `gr` ↔ `el`
+
+When using the mapped alias codes (`cn` or `jp`), you will see a warning message during the build process informing you of the mapping, but the resulting library will use the standard ICU locale code in its name and functionality.
+
+Examples:
+```bash
+# This will show a warning and build libfts5_icu_zh.so
+cmake .. -DLOCALE=cn
+
+# This will build libfts5_icu_zh.so directly without warning
+cmake .. -DLOCALE=zh
+
+# These will both build libfts5_icu_ko.so without any warnings
+cmake .. -DLOCALE=kr
+cmake .. -DLOCALE=ko
+```
+
+## Testing
+
+This project includes comprehensive tests for all supported locales. You can run individual tests or all tests at once:
+
+### Running All Tests
+
+```bash
+# Build all tokenizers
+./scripts/build_all.sh
+
+# Test all tokenizers
+./scripts/test_all.sh
+```
+
+### Running Individual Locale Tests
+
+```bash
+# Test a specific locale (example with Japanese)
+sqlite3 < tests/test_ja_tokenizer.sql
+
+# Test the universal tokenizer
+sqlite3 < tests/test_universal_tokenizer.sql
+```
+
+### Supported Locales and Test Files
+
+Each supported locale has a corresponding test file in the `tests/` directory:
+
+- **ar** (Arabic): `tests/test_ar_tokenizer.sql`
+- **el** (Greek): `tests/test_el_tokenizer.sql`
+- **he** (Hebrew): `tests/test_he_tokenizer.sql` (also supports `iw` alias)
+- **ja** (Japanese): `tests/test_ja_tokenizer.sql`
+- **ko** (Korean): `tests/test_ko_tokenizer.sql` (also supports `kr` alias)
+- **ru** (Russian): `tests/test_ru_tokenizer.sql`
+- **th** (Thai): `tests/test_th_tokenizer.sql`
+- **zh** (Chinese): `tests/test_zh_tokenizer.sql` (also supports `cn` alias)
+- **Universal**: `tests/test_universal_tokenizer.sql`
+
+Note: For locales with aliases (`cn`→`zh`, `jp`→`ja`, `kr`→`ko`, `iw`→`he`, `gr`→`el`), the same test file works for both the standard code and its aliases, as they all map to the same tokenizer functionality.
+
+## Testing the ICU Transliterator
+
+This project includes a simple C program to test the enhanced ICU transliterator rules with various language samples.
+
+### Building and Running the Test
+
+You can build and run the test program using the provided scripts:
+
+```bash
+# Build and run the test
+./run_test.sh
+
+# Or just build the test
+./build_test.sh
+```
+
+The test program demonstrates that the transliterator correctly converts various scripts to Latin/ASCII form, including:
+- Arabic
+- Cyrillic
+- Hebrew
+- Greek
+- Chinese (both Traditional and Simplified)
+- Japanese
+- Text with diacritics
+
+The transliterator uses the following rule chain:
+`NFKD; [:Nonspacing Mark:] Remove; Arabic-Latin; Cyrillic-Latin; Hebrew-Latin; Greek-Latin; Latin-ASCII; Lower; NFKC; Traditional-Simplified; Katakana-Hiragana`
+
+This ensures comprehensive script conversion and normalization for effective text search and indexing.
+
+## Locale-Specific Transliterator Rules
+
+For optimized performance with specific languages, see the documentation in [docs/BUILD_TEST_README.md](docs/BUILD_TEST_README.md) for information about locale-specific rules.
+
+The locale-specific tests can be found in the [tests/](tests/) directory.
+
+### Why Locale-Specific Tokenizers Are More Efficient
+
+When you build a tokenizer for a specific locale (e.g., `-DLOCALE=ja` for Japanese), the resulting library uses transliterator rules that are optimized for that language:
+
+1. **Reduced Processing Overhead**: Instead of applying transformations for all possible scripts (Latin, Cyrillic, Arabic, Chinese, etc.), the locale-specific tokenizer only applies the transformations relevant to that language.
+
+2. **Language-Appropriate Normalization**: Each locale uses normalization rules that are appropriate for that language's characteristics:
+   - **Japanese** (`ja`): `NFKD; [:Nonspacing Mark:] Remove; Katakana-Hiragana; Lower; NFKC`
+   - **Chinese** (`zh`): `NFKD; [:Nonspacing Mark:] Remove; Traditional-Simplified; Lower; NFKC`
+   - **Thai** (`th`): `NFKD; [:Nonspacing Mark:] Remove; Lower; NFKC`
+   - **Korean** (`ko`): `NFKD; [:Nonspacing Mark:] Remove; Lower; NFKC`
+   - **Arabic** (`ar`): `NFKD; [:Nonspacing Mark:] Remove; Arabic-Latin; Lower; NFKC`
+   - **Russian** (`ru`): `NFKD; [:Nonspacing Mark:] Remove; Cyrillic-Latin; Lower; NFKC`
+   - **Hebrew** (`he`): `NFKD; [:Nonspacing Mark:] Remove; Hebrew-Latin; Lower; NFKC`
+   - **Greek** (`el`): `NFKD; [:Nonspacing Mark:] Remove; Greek-Latin; Lower; NFKC`
+
+3. **Faster Text Processing**: By eliminating unnecessary script conversions, locale-specific tokenizers can process text significantly faster than the universal tokenizer.
+
+4. **More Accurate Results**: Language-specific rules provide more accurate normalization and transliteration for the target language.
+
+In contrast, the **universal tokenizer** uses a comprehensive rule set that includes transformations for all supported scripts:
+`NFKD; [:Nonspacing Mark:] Remove; Arabic-Latin; Cyrillic-Latin; Hebrew-Latin; Greek-Latin; Latin-ASCII; Lower; NFKC; Traditional-Simplified; Katakana-Hiragana`
+
+While the universal tokenizer can handle text in any supported language, it has higher processing overhead because it must check and potentially apply all transformations for every piece of text.
+
+### When to Use Each Approach
+
+- **Use locale-specific tokenizers** when you know the primary language of your text data and performance is important.
+- **Use the universal tokenizer** when dealing with mixed-language content or when the language of the text is unknown at build time.

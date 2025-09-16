@@ -1,14 +1,17 @@
 /**
  * @file fts5_icu.c
  * @brief A dynamic FTS5 tokenizer for SQLite that uses ICU to segment text
- * based on a locale provided at compile time.
+ *        based on a locale provided at compile time.
  *
  * This version is written in pure C for maximum stability and direct
  * control over memory management, making it suitable for high-volume,
  * long-running systems.
  *
- * The locale, tokenizer name, and library entry point are set at compile time
- * via preprocessor definitions passed in by the CMake build system.
+ * The user defines only:
+ *   -DTOKENIZER_LOCALE="ja"   (or "zh", "th", etc.)
+ *
+ * All other settings (TOKENIZER_NAME, INIT_LOCALE_SUFFIX, ICU rules)
+ * are derived automatically at compile time.
  */
 
 #include <stdio.h>
@@ -27,13 +30,11 @@
 #include <unicode/utrans.h>
 
 /*
-** These macros are passed in by CMake. They default to "" and "icu" if not defined.
+** These macros are passed in by the build system.
+** They will be auto-derived from TOKENIZER_LOCALE below.
 */
 #ifndef TOKENIZER_LOCALE
 # define TOKENIZER_LOCALE ""
-#endif
-#ifndef TOKENIZER_NAME
-# define TOKENIZER_NAME "icu"
 #endif
 
 #ifndef UNUSED_PARAMETER
@@ -43,14 +44,14 @@
 // Define the fts5_api pointer before use
 SQLITE_EXTENSION_INIT1
 
-// Forward declarations for the tokenizer functions
+// Forward declarations
 static int icuCreate(void*, const char**, int, Fts5Tokenizer**);
 static void icuDelete(Fts5Tokenizer*);
 static int icuTokenize(Fts5Tokenizer*, void*, int, const char*, int, int (*)(void*, int, const char*, int, int, int));
 
 // Main tokenizer struct
 typedef struct IcuTokenizer {
-    fts5_tokenizer fts_tokenizer; // This MUST be the first member
+    fts5_tokenizer fts_tokenizer; // Must be first member
     UBreakIterator *pBreakIterator;
     UTransliterator *pTransliterator;
 } IcuTokenizer;
@@ -59,7 +60,6 @@ typedef struct IcuTokenizer {
 static fts5_api *fts5_api_from_db(sqlite3 *db){
   fts5_api *pApi = 0;
   sqlite3_stmt *pStmt = 0;
-
   if( sqlite3_prepare_v2(db, "SELECT fts5(?)", -1, &pStmt, 0)==SQLITE_OK ){
     sqlite3_bind_pointer(pStmt, 1, &pApi, "fts5_api_ptr", 0);
     sqlite3_step(pStmt);
@@ -68,10 +68,100 @@ static fts5_api *fts5_api_from_db(sqlite3 *db){
   return pApi;
 }
 
+// ========================================================================
+// === ICU RULE DEFINITIONS ===============================================
+// ========================================================================
 
-/**
- * @brief FTS5 tokenizer creation callback (xCreate).
- */
+// Base normalization: decompose and remove diacritics
+#define ICU_RULE_BASE u"NFKD; [:Nonspacing Mark:] Remove; "
+
+// Language-specific rules built from base
+#define ICU_RULE_JA (ICU_RULE_BASE u"Katakana-Hiragana; Lower; NFKC")  // Japanese
+#define ICU_RULE_ZH (ICU_RULE_BASE u"Traditional-Simplified; Lower; NFKC")  // Chinese
+#define ICU_RULE_TH (ICU_RULE_BASE u"Lower; NFKC")                    // Thai
+#define ICU_RULE_KO (ICU_RULE_BASE u"Lower; NFKC")                    // Korean
+#define ICU_RULE_AR (ICU_RULE_BASE u"Arabic-Latin; Lower; NFKC")      // Arabic
+#define ICU_RULE_RU (ICU_RULE_BASE u"Cyrillic-Latin; Lower; NFKC")    // Russian
+#define ICU_RULE_HE (ICU_RULE_BASE u"Hebrew-Latin; Lower; NFKC")      // Hebrew
+#define ICU_RULE_EL (ICU_RULE_BASE u"Greek-Latin; Lower; NFKC")       // Greek
+
+// Default comprehensive rule for mixed or unknown locales
+#define ICU_RULE_DEFAULT \
+    u"NFKD; [:Nonspacing Mark:] Remove; " \
+    u"Arabic-Latin; Cyrillic-Latin; Hebrew-Latin; Greek-Latin; Latin-ASCII; " \
+    u"Lower; NFKC; Traditional-Simplified; Katakana-Hiragana"
+
+// ========================================================================
+// === AUTO-CONFIGURATION FROM TOKENIZER_LOCALE =========================
+// ========================================================================
+// If user sets -DTOKENIZER_LOCALE="xx", we auto-derive the rest.
+
+#undef TOKENIZER_NAME
+#undef INIT_LOCALE_SUFFIX
+#undef ICU_TOKENIZER_RULES
+
+// Since we can't use strcmp in preprocessor directives, we use separate defines for each locale
+// that are set by the build system based on the LOCALE variable.
+
+// If C_INIT_SUFFIX_NO_UNDERSCORE is defined, use it for the function name
+// Otherwise, use the traditional approach
+#ifdef C_INIT_SUFFIX_NO_UNDERSCORE
+  #define INIT_LOCALE_SUFFIX_FOR_FUNCTION C_INIT_SUFFIX_NO_UNDERSCORE
+#else
+  #define INIT_LOCALE_SUFFIX_FOR_FUNCTION INIT_LOCALE_SUFFIX
+#endif
+
+#if defined(TOKENIZER_LOCALE_JA)
+  #define INIT_LOCALE_SUFFIX _ja
+  #define TOKENIZER_NAME "icu_ja"
+  #define ICU_TOKENIZER_RULES ICU_RULE_JA
+
+#elif defined(TOKENIZER_LOCALE_ZH)
+  #define INIT_LOCALE_SUFFIX _zh
+  #define TOKENIZER_NAME "icu_zh"
+  #define ICU_TOKENIZER_RULES ICU_RULE_ZH
+
+#elif defined(TOKENIZER_LOCALE_TH)
+  #define INIT_LOCALE_SUFFIX _th
+  #define TOKENIZER_NAME "icu_th"
+  #define ICU_TOKENIZER_RULES ICU_RULE_TH
+
+#elif defined(TOKENIZER_LOCALE_KO)
+  #define INIT_LOCALE_SUFFIX _ko
+  #define TOKENIZER_NAME "icu_ko"
+  #define ICU_TOKENIZER_RULES ICU_RULE_KO
+
+#elif defined(TOKENIZER_LOCALE_AR)
+  #define INIT_LOCALE_SUFFIX _ar
+  #define TOKENIZER_NAME "icu_ar"
+  #define ICU_TOKENIZER_RULES ICU_RULE_AR
+
+#elif defined(TOKENIZER_LOCALE_RU)
+  #define INIT_LOCALE_SUFFIX _ru
+  #define TOKENIZER_NAME "icu_ru"
+  #define ICU_TOKENIZER_RULES ICU_RULE_RU
+
+#elif defined(TOKENIZER_LOCALE_HE)
+  #define INIT_LOCALE_SUFFIX _he
+  #define TOKENIZER_NAME "icu_he"
+  #define ICU_TOKENIZER_RULES ICU_RULE_HE
+
+#elif defined(TOKENIZER_LOCALE_EL)
+  #define INIT_LOCALE_SUFFIX _el
+  #define TOKENIZER_NAME "icu_el"
+  #define ICU_TOKENIZER_RULES ICU_RULE_EL
+
+#else
+  // Default/fallback: generic tokenizer
+  #define INIT_LOCALE_SUFFIX
+  #define TOKENIZER_NAME "icu"
+  #define ICU_TOKENIZER_RULES ICU_RULE_DEFAULT
+#endif
+
+// ========================================================================
+// === FTS5 TOKENIZER CREATION CALLBACK (xCreate) =========================
+// ========================================================================
+
 static int icuCreate(
   void *pCtx,
   const char **azArg,
@@ -83,29 +173,31 @@ static int icuCreate(
   UNUSED_PARAMETER(nArg);
 
   IcuTokenizer *pTokenizer = (IcuTokenizer*)sqlite3_malloc(sizeof(IcuTokenizer));
-  if( pTokenizer==NULL ){
-    return SQLITE_NOMEM;
-  }
+  if (!pTokenizer) return SQLITE_NOMEM;
   memset(pTokenizer, 0, sizeof(IcuTokenizer));
 
   UErrorCode status = U_ZERO_ERROR;
-  // Use the locale defined at compile time by CMake
+
+  // Open break iterator with compile-time locale
   pTokenizer->pBreakIterator = ubrk_open(UBRK_WORD, TOKENIZER_LOCALE, NULL, 0, &status);
-
-  if( U_FAILURE(status) ){
-    fprintf(stderr, "ICU Tokenizer Error: ubrk_open() for locale '%s' failed: %s\n", TOKENIZER_LOCALE, u_errorName(status));
-    sqlite3_free(pTokenizer);
-    return SQLITE_ERROR;
-  }
-  
-  pTokenizer->pTransliterator = utrans_openU(u"NFKD; [:Nonspacing Mark:] Remove; Greek-Latin; Latin-ASCII; Lower; NFKC; Traditional-Simplified; Katakana-Hiragana", -1, UTRANS_FORWARD, NULL, 0, NULL, &status);
-
-  if( U_FAILURE(status) ){
-    fprintf(stderr, "ICU Tokenizer Error: utrans_openU() for locale '%s' failed: %s\n", TOKENIZER_LOCALE, u_errorName(status));
+  if (U_FAILURE(status)) {
+    fprintf(stderr, "ICU Tokenizer Error: ubrk_open() for locale '%s' failed: %s\n",
+            TOKENIZER_LOCALE, u_errorName(status));
     sqlite3_free(pTokenizer);
     return SQLITE_ERROR;
   }
 
+  // Use compile-time selected rule
+  pTokenizer->pTransliterator = utrans_openU(ICU_TOKENIZER_RULES, -1, UTRANS_FORWARD, NULL, 0, NULL, &status);
+  if (U_FAILURE(status)) {
+    fprintf(stderr, "ICU Tokenizer Error: utrans_openU() failed for locale '%s': %s\n",
+            TOKENIZER_LOCALE, u_errorName(status));
+    ubrk_close(pTokenizer->pBreakIterator);
+    sqlite3_free(pTokenizer);
+    return SQLITE_ERROR;
+  }
+
+  // Setup vtable
   pTokenizer->fts_tokenizer.xCreate = icuCreate;
   pTokenizer->fts_tokenizer.xDelete = icuDelete;
   pTokenizer->fts_tokenizer.xTokenize = icuTokenize;
@@ -114,21 +206,22 @@ static int icuCreate(
   return SQLITE_OK;
 }
 
-/**
- * @brief FTS5 tokenizer deletion callback (xDelete).
- */
+// ========================================================================
+// === FTS5 TOKENIZER DELETION CALLBACK (xDelete) =========================
+// ========================================================================
+
 static void icuDelete(Fts5Tokenizer *pTok){
-  if( pTok ){
-    IcuTokenizer *pTokenizer = (IcuTokenizer*)pTok;
-    ubrk_close(pTokenizer->pBreakIterator);
-    utrans_close(pTokenizer->pTransliterator);
-    sqlite3_free(pTokenizer);
-  }
+  if (!pTok) return;
+  IcuTokenizer *pTokenizer = (IcuTokenizer*)pTok;
+  ubrk_close(pTokenizer->pBreakIterator);
+  utrans_close(pTokenizer->pTransliterator);
+  sqlite3_free(pTokenizer);
 }
 
-/**
- * @brief The core tokenization function (xTokenize).
- */
+// ========================================================================
+// === CORE TOKENIZATION FUNCTION (xTokenize) =============================
+// ========================================================================
+
 static int icuTokenize(
   Fts5Tokenizer *pTok,
   void *pCtx,
@@ -141,60 +234,63 @@ static int icuTokenize(
   IcuTokenizer *pTokenizer = (IcuTokenizer*)pTok;
   UErrorCode status = U_ZERO_ERROR;
 
-  if( pText==NULL || nText<=0 ){
-    return SQLITE_OK;
-  }
+  if (!pText || nText <= 0) return SQLITE_OK;
 
-  // Allocate memory for UTF-16 text and the offset map.
-  UChar *pUText = (UChar*)sqlite3_malloc(sizeof(UChar) * (nText + 1));
-  if(!pUText) return SQLITE_NOMEM;
-  int32_t *pMap = (int32_t*)sqlite3_malloc(sizeof(int32_t) * (nText + 2));
-  if(!pMap){
+  // Allocate UTF-16 buffer and byte offset map
+  UChar *pUText = (UChar*)sqlite3_malloc((nText + 1) * sizeof(UChar));
+  if (!pUText) return SQLITE_NOMEM;
+
+  int32_t *pMap = (int32_t*)sqlite3_malloc((nText + 2) * sizeof(int32_t));
+  if (!pMap) {
     sqlite3_free(pUText);
     return SQLITE_NOMEM;
   }
 
-  // Convert UTF-8 to UTF-16 and build the map simultaneously.
+  // Convert UTF-8 → UTF-16 and build byte offset map
   int32_t iU16 = 0;
   int32_t iU8 = 0;
-
-  while(iU8 < nText){
+  while (iU8 < nText) {
     UChar32 c;
     pMap[iU16] = iU8;
     U8_NEXT(pText, iU8, nText, c);
-
+    if (c == 0xFFFD && (iU8 > nText || (pText[iU8 - 1] & 0xC0) != 0x80)) {
+      sqlite3_free(pUText);
+      sqlite3_free(pMap);
+      return SQLITE_ERROR;
+    }
     UBool isError = 0;
     U16_APPEND(pUText, iU16, nText + 1, c, isError);
-    if(isError){
-        sqlite3_free(pUText);
-        sqlite3_free(pMap);
-        return SQLITE_ERROR;
+    if (isError) {
+      sqlite3_free(pUText);
+      sqlite3_free(pMap);
+      return SQLITE_ERROR;
     }
-    if(c > 0xFFFF){
-        pMap[iU16 - 1] = pMap[iU16 - 2];
+    if (c > 0xFFFF) {
+      pMap[iU16 - 1] = pMap[iU16 - 2]; // Surrogate pair
     }
   }
   pMap[iU16] = nText;
 
-  // Set the text for the break iterator
+  // Set text for break iterator
   ubrk_setText(pTokenizer->pBreakIterator, pUText, iU16, &status);
-  if(U_FAILURE(status)){
+  if (U_FAILURE(status)) {
     sqlite3_free(pUText);
     sqlite3_free(pMap);
     return SQLITE_ERROR;
   }
 
-  UChar buf[256];
-  int32_t nBuf = 256;
-  char dest[512];
-  int32_t nDest = 512;
+  // Dynamic buffers for normalized text
+  UChar *buf = NULL;
+  char *dest = NULL;
+  int32_t nBuf = 0;
+  int32_t nDest = 0;
+  int result = SQLITE_OK;
 
-  // Loop through boundaries and emit tokens
   int32_t iPrev = ubrk_first(pTokenizer->pBreakIterator);
   int32_t iNext;
-  while( (iNext = ubrk_next(pTokenizer->pBreakIterator)) != UBRK_DONE ){
+  while ((iNext = ubrk_next(pTokenizer->pBreakIterator)) != UBRK_DONE) {
     int32_t wordStatus = ubrk_getRuleStatus(pTokenizer->pBreakIterator);
-    if( wordStatus >= UBRK_WORD_NONE && wordStatus < UBRK_WORD_NONE_LIMIT ){
+    if (wordStatus >= UBRK_WORD_NONE && wordStatus < UBRK_WORD_NONE_LIMIT) {
       iPrev = iNext;
       continue;
     }
@@ -202,85 +298,102 @@ static int icuTokenize(
     int32_t iStartByte = pMap[iPrev];
     int32_t iEndByte = pMap[iNext];
     int nTokenByte = iEndByte - iStartByte;
-
-    if( nTokenByte > 0 ){
-      int nByte = iNext - iPrev;
-      if (nByte > nBuf)
-        nByte = nBuf;
-      u_strncpy(buf, pUText + iPrev, nByte);
-      int32_t limit = nByte;
-      utrans_transUChars(pTokenizer->pTransliterator, buf, &nByte, nBuf, 0, &limit, &status);
-      if (U_FAILURE(status))
-      {
-        sqlite3_free(pUText);
-        sqlite3_free(pMap);
-        return SQLITE_ERROR;
-      }
-      nByte = limit;
-      u_strToUTF8WithSub(dest, nDest, &nByte, buf, nByte, 0xFFFD, NULL, &status);
-      if (U_FAILURE(status))
-      {
-        sqlite3_free(pUText);
-        sqlite3_free(pMap);
-        return SQLITE_ERROR;
-      }
-      if (nByte > nDest)
-        nByte = nDest;
-      int rc = xToken(pCtx, 0, dest, nByte, iStartByte, iEndByte);
-      if( rc != SQLITE_OK ){
-        sqlite3_free(pUText);
-        sqlite3_free(pMap);
-        return rc;
-      }
+    if (nTokenByte <= 0) {
+      iPrev = iNext;
+      continue;
     }
+
+    int32_t nSrc = iNext - iPrev;
+
+    // Grow buffer if needed
+    int32_t requiredBufSize = (nSrc * 2) + 256;
+    if (nBuf < requiredBufSize) {
+      UChar *newBuf = (UChar*)sqlite3_realloc(buf, requiredBufSize * sizeof(UChar));
+      if (!newBuf) {
+        result = SQLITE_NOMEM;
+        goto cleanup;
+      }
+      buf = newBuf;
+      nBuf = requiredBufSize;
+    }
+
+    u_strncpy(buf, pUText + iPrev, nSrc);
+    int32_t limit = nSrc;
+    status = U_ZERO_ERROR;
+    utrans_transUChars(pTokenizer->pTransliterator, buf, &nSrc, nBuf, 0, &limit, &status);
+    if (U_FAILURE(status)) {
+      result = SQLITE_ERROR;
+      goto cleanup;
+    }
+    nSrc = limit;
+
+    // Convert back to UTF-8
+    int32_t requiredDestSize = (nSrc * 4) + 512;
+    if (nDest < requiredDestSize) {
+      char *newDest = (char*)sqlite3_realloc(dest, requiredDestSize);
+      if (!newDest) {
+        result = SQLITE_NOMEM;
+        goto cleanup;
+      }
+      dest = newDest;
+      nDest = requiredDestSize;
+    }
+
+    int32_t utf8Len = 0;
+    status = U_ZERO_ERROR;
+    u_strToUTF8WithSub(dest, nDest, &utf8Len, buf, limit, 0xFFFD, NULL, &status);
+    if (U_FAILURE(status)) {
+      result = SQLITE_ERROR;
+      goto cleanup;
+    }
+
+    if (xToken(pCtx, 0, dest, utf8Len, iStartByte, iEndByte) != SQLITE_OK) {
+      result = SQLITE_ERROR;
+      goto cleanup;
+    }
+
     iPrev = iNext;
   }
 
+cleanup:
+  sqlite3_free(buf);
+  sqlite3_free(dest);
   sqlite3_free(pUText);
   sqlite3_free(pMap);
-
-  return SQLITE_OK;
+  return result;
 }
 
-/*
-** The main entry point for the SQLite extension.
-** The name is constructed dynamically by the C preprocessor based on macros
-** from the CMake build script.
-**
-** For example, if CMake defines INIT_LOCALE_SUFFIX as 'th', the function name
-** becomes 'sqlite3_ftsicuth_init'. If it's empty, the name becomes
-** 'sqlite3_ftsicu_init'.
-*/
+// ========================================================================
+// === MODULE INITIALIZATION ==============================================
+// ========================================================================
+
 #define PASTE_IMPL(a,b,c) a##b##c
 #define PASTE(a,b,c) PASTE_IMPL(a,b,c)
-
-#ifndef INIT_LOCALE_SUFFIX
-#define INIT_LOCALE_SUFFIX // Define as empty if not set by CMake
-#endif
 
 #ifdef _WIN32
 __declspec(dllexport)
 #endif
-int PASTE(sqlite3_ftsicu, INIT_LOCALE_SUFFIX, _init)(
+int PASTE(sqlite3_ftsicu, INIT_LOCALE_SUFFIX_FOR_FUNCTION, _init)(
   sqlite3 *db,
   char **pzErrMsg,
   const sqlite3_api_routines *pApi
 ){
   SQLITE_EXTENSION_INIT2(pApi);
-
-  fts5_api *pFts5Api;
-  fts5_tokenizer tokenizer;
-
-  pFts5Api = fts5_api_from_db(db);
-  if( !pFts5Api ){
-      *pzErrMsg = sqlite3_mprintf("Failed to get FTS5 API");
-      return SQLITE_ERROR;
+  fts5_api *pFts5Api = fts5_api_from_db(db);
+  if (!pFts5Api) {
+    *pzErrMsg = sqlite3_mprintf("Failed to get FTS5 API");
+    return SQLITE_ERROR;
   }
 
-  tokenizer.xCreate = icuCreate;
-  tokenizer.xDelete = icuDelete;
-  tokenizer.xTokenize = icuTokenize;
+  fts5_tokenizer tokenizer = {
+    .xCreate = icuCreate,
+    .xDelete = icuDelete,
+    .xTokenize = icuTokenize
+  };
 
-  // Use the tokenizer name defined at compile time by CMake
-  return pFts5Api->xCreateTokenizer(pFts5Api, TOKENIZER_NAME, (void*)pFts5Api, &tokenizer, NULL);
+  int rc = pFts5Api->xCreateTokenizer(pFts5Api, TOKENIZER_NAME, NULL, &tokenizer, NULL);
+  if (rc != SQLITE_OK) {
+    *pzErrMsg = sqlite3_mprintf("Failed to register ICU tokenizer: %s", sqlite3_errstr(rc));
+  }
+  return rc;
 }

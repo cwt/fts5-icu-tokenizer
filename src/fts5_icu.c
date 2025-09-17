@@ -73,7 +73,7 @@ static fts5_api *fts5_api_from_db(sqlite3 *db){
 // ========================================================================
 
 // Base normalization: decompose and remove diacritics
-#define ICU_RULE_BASE u"NFKD; [:Nonspacing Mark:] Remove; "
+#define ICU_RULE_BASE u"NFKD; "
 
 // Language-specific rules built from base
 #define ICU_RULE_JA (ICU_RULE_BASE u"Katakana-Hiragana; Lower; NFKC")  // Japanese
@@ -87,9 +87,9 @@ static fts5_api *fts5_api_from_db(sqlite3 *db){
 
 // Default comprehensive rule for mixed or unknown locales
 #define ICU_RULE_DEFAULT \
-    u"NFKD; [:Nonspacing Mark:] Remove; " \
+    (ICU_RULE_BASE \
     u"Arabic-Latin; Cyrillic-Latin; Hebrew-Latin; Greek-Latin; Latin-ASCII; " \
-    u"Lower; NFKC; Traditional-Simplified; Katakana-Hiragana"
+    u"Lower; NFKC; Traditional-Simplified; Katakana-Hiragana")
 
 // ========================================================================
 // === AUTO-CONFIGURATION FROM TOKENIZER_LOCALE =========================

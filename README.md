@@ -196,7 +196,7 @@ After compiling, you can load the specific tokenizer you built into SQLite.
 
 ```sql
 -- Provide the path to the specific library in your build directory.
-.load ./build/fts5_icu_th.so
+.load ./build/libfts5_icu_th.so
 
 -- Create a virtual table using the correctly named tokenizer
 CREATE VIRTUAL TABLE documents_th USING fts5(
@@ -213,7 +213,7 @@ SELECT * FROM documents_th WHERE documents_th MATCH 'ภาษา';
 
 ```sql
 -- Provide the path to the specific library in your build directory.
-.load ./build/fts5_icu.so
+.load ./build/libfts5_icu.so
 
 -- Create a virtual table using the correctly named tokenizer
 CREATE VIRTUAL TABLE documents USING fts5(

@@ -1,8 +1,8 @@
 # FTS5 ICU Tokenizer for SQLite
 
-This project provides a custom FTS5 tokenizer for SQLite that uses the International Components for Unicode (ICU) library to provide robust word segmentation for various languages.
+This project provides custom FTS5 tokenizers for SQLite that use the International Components for Unicode (ICU) library to provide robust word segmentation for various languages.
 
-It is written in C for maximum stability and performance, making it suitable for high-availability systems. The target locale is configurable at build time.
+It is written in C for maximum stability and performance, making it suitable for high-availability systems. The target locale is configurable at build time, with support for both universal and locale-specific tokenizers.
 
 ## Prerequisites
 
@@ -31,25 +31,26 @@ For convenience, this project includes scripts to build and test all supported l
 
 For detailed information about building and testing, see [docs/BUILD_TEST_README.md](docs/BUILD_TEST_README.md).
 
-For information about the project structure, see [docs/PROJECT_STRUCTURE.md](docs/PROJECT_STRUCTURE.md).
+### Building Individual Locales
 
-### 3. Compile the project
+You can build individual locales using CMake directly:
 
 ```bash
+# Create build directory
+mkdir build
+cd build
+
+# Configure for a specific locale (e.g., Japanese)
+cmake .. -DLOCALE=ja
+
+# Build
 cmake --build .
-```
 
-_(Alternatively, on Linux/macOS, you can just run `make`)_
-
-### 4. Install the library (optional)
-
-This will copy the compiled shared library to a standard system location (e.g., `/usr/local/lib`).
-
-```bash
+# Install the library (optional)
 sudo cmake --build . --target install
 ```
 
-_(Alternatively, on Linux/macOS, you can just run `sudo make install`)_
+_(Alternatively, on Linux/macOS, you can just run `make` and `sudo make install`)_
 
 ## Building on Windows
 
@@ -136,9 +137,21 @@ This project can be built on Windows using Visual Studio and CMake. Here's how:
    cmake --build . --config Release
    ```
 
+To build for a specific locale (e.g., Thai), add the LOCALE parameter during CMake configuration:
+
+```powershell
+cmake -G "Visual Studio 17 2022" -T host=x64 -A x64 .. `
+  -DICU_ROOT="C:\icu" `
+  -DSQLite3_INCLUDE_DIR="C:\sqlite\include" `
+  -DSQLite3_LIBRARY="C:\sqlite\sqlite3.lib" `
+  -DLOCALE=th
+```
+
+This will create `fts5_icu_th.dll` and register the tokenizer as `icu_th`.
+
 ### Step 5: Using the Extension
 
-After successful compilation, you'll find `fts5_icu.dll` in the `build\Release` directory. To use it with SQLite:
+After successful compilation, you'll find `fts5_icu.dll` (or `fts5_icu_xx.dll` for locale-specific builds) in the `build\Release` directory. To use it with SQLite:
 
 #### Method 1: Simple Load (Windows)
 
@@ -162,31 +175,6 @@ This method is recommended over full path loading because of how Windows resolve
 5. The directories listed in the PATH environment variable
 
 By copying the DLLs to the current directory and using the simple load command, you ensure that all required DLLs are found correctly.
-
-#### Method 2: Full Path Load (Not Recommended on Windows)
-
-Alternatively, you can load the extension using the full path, but this may cause issues with loading the required ICU DLLs:
-
-```sql
-.load ./build/Release/fts5_icu.dll
-
-CREATE VIRTUAL TABLE documents USING fts5(
-    content,
-    tokenize = 'icu'
-);
-```
-
-To build for a specific locale (e.g., Thai), add the LOCALE parameter during CMake configuration:
-
-```powershell
-cmake -G "Visual Studio 17 2022" -T host=x64 -A x64 .. `
-  -DICU_ROOT="C:\icu" `
-  -DSQLite3_INCLUDE_DIR="C:\sqlite\include" `
-  -DSQLite3_LIBRARY="C:\sqlite\sqlite3.lib" `
-  -DLOCALE=th
-```
-
-This will create `fts5_icu_th.dll` and register the tokenizer as `icu_th`.
 
 ## Usage
 
@@ -305,10 +293,10 @@ You can build and run the test program using the provided scripts:
 
 ```bash
 # Build and run the test
-./run_test.sh
+./scripts/run_test.sh
 
 # Or just build the test
-./build_test.sh
+./scripts/build_test.sh
 ```
 
 The test program demonstrates that the transliterator correctly converts various scripts to Latin/ASCII form, including:
@@ -321,7 +309,7 @@ The test program demonstrates that the transliterator correctly converts various
 - Text with diacritics
 
 The transliterator uses the following rule chain:
-`NFKD; [:Nonspacing Mark:] Remove; Arabic-Latin; Cyrillic-Latin; Hebrew-Latin; Greek-Latin; Latin-ASCII; Lower; NFKC; Traditional-Simplified; Katakana-Hiragana`
+`NFKD; Arabic-Latin; Cyrillic-Latin; Hebrew-Latin; Greek-Latin; Latin-ASCII; Lower; NFKC; Traditional-Simplified; Katakana-Hiragana`
 
 This ensures comprehensive script conversion and normalization for effective text search and indexing.
 
@@ -338,21 +326,21 @@ When you build a tokenizer for a specific locale (e.g., `-DLOCALE=ja` for Japane
 1. **Reduced Processing Overhead**: Instead of applying transformations for all possible scripts (Latin, Cyrillic, Arabic, Chinese, etc.), the locale-specific tokenizer only applies the transformations relevant to that language.
 
 2. **Language-Appropriate Normalization**: Each locale uses normalization rules that are appropriate for that language's characteristics:
-   - **Japanese** (`ja`): `NFKD; [:Nonspacing Mark:] Remove; Katakana-Hiragana; Lower; NFKC`
-   - **Chinese** (`zh`): `NFKD; [:Nonspacing Mark:] Remove; Traditional-Simplified; Lower; NFKC`
-   - **Thai** (`th`): `NFKD; [:Nonspacing Mark:] Remove; Lower; NFKC`
-   - **Korean** (`ko`): `NFKD; [:Nonspacing Mark:] Remove; Lower; NFKC`
-   - **Arabic** (`ar`): `NFKD; [:Nonspacing Mark:] Remove; Arabic-Latin; Lower; NFKC`
-   - **Russian** (`ru`): `NFKD; [:Nonspacing Mark:] Remove; Cyrillic-Latin; Lower; NFKC`
-   - **Hebrew** (`he`): `NFKD; [:Nonspacing Mark:] Remove; Hebrew-Latin; Lower; NFKC`
-   - **Greek** (`el`): `NFKD; [:Nonspacing Mark:] Remove; Greek-Latin; Lower; NFKC`
+   - **Japanese** (`ja`): `NFKD; Katakana-Hiragana; Lower; NFKC`
+   - **Chinese** (`zh`): `NFKD; Traditional-Simplified; Lower; NFKC`
+   - **Thai** (`th`): `NFKD; Lower; NFKC`
+   - **Korean** (`ko`): `NFKD; Lower; NFKC`
+   - **Arabic** (`ar`): `NFKD; Arabic-Latin; Lower; NFKC`
+   - **Russian** (`ru`): `NFKD; Cyrillic-Latin; Lower; NFKC`
+   - **Hebrew** (`he`): `NFKD; Hebrew-Latin; Lower; NFKC`
+   - **Greek** (`el`): `NFKD; Greek-Latin; Lower; NFKC`
 
 3. **Faster Text Processing**: By eliminating unnecessary script conversions, locale-specific tokenizers can process text significantly faster than the universal tokenizer.
 
 4. **More Accurate Results**: Language-specific rules provide more accurate normalization and transliteration for the target language.
 
 In contrast, the **universal tokenizer** uses a comprehensive rule set that includes transformations for all supported scripts:
-`NFKD; [:Nonspacing Mark:] Remove; Arabic-Latin; Cyrillic-Latin; Hebrew-Latin; Greek-Latin; Latin-ASCII; Lower; NFKC; Traditional-Simplified; Katakana-Hiragana`
+`NFKD; Arabic-Latin; Cyrillic-Latin; Hebrew-Latin; Greek-Latin; Latin-ASCII; Lower; NFKC; Traditional-Simplified; Katakana-Hiragana`
 
 While the universal tokenizer can handle text in any supported language, it has higher processing overhead because it must check and potentially apply all transformations for every piece of text.
 

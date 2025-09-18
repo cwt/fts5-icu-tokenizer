@@ -168,6 +168,19 @@ if(WIN32)
 endif()
 
 
+# --- Test Programs ---
+
+# Add test programs
+add_executable(test_transliterator src/test_transliterator.c)
+target_link_libraries(test_transliterator PRIVATE ICU::i18n ICU::uc)
+
+add_executable(locale_specific_tests src/locale_specific_tests.c)
+target_link_libraries(locale_specific_tests PRIVATE ICU::i18n ICU::uc)
+
+add_executable(test_locale_tokenizer src/test_locale_tokenizer.c)
+target_link_libraries(test_locale_tokenizer PRIVATE ICU::i18n ICU::uc SQLite::SQLite3)
+target_compile_definitions(test_locale_tokenizer PRIVATE SQLITE_ENABLE_FTS5)
+
 # --- Installation ---
 
 # Define where to install the compiled library.

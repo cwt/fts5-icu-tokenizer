@@ -249,9 +249,11 @@ static int icuTokenize(
   // Convert UTF-8 → UTF-16 and build byte offset map
   int32_t iU16 = 0;
   int32_t iU8 = 0;
-  while (iU8 < nText) {
+  while (iU8 < nText && iU16 < nText + 1) {  // Add bounds check for iU16
     UChar32 c;
-    pMap[iU16] = iU8;
+    if (iU16 < nText + 2) {  // Bounds check for pMap
+      pMap[iU16] = iU8;
+    }
     U8_NEXT(pText, iU8, nText, c);
     if (c == 0xFFFD && (iU8 > nText || (pText[iU8 - 1] & 0xC0) != 0x80)) {
       sqlite3_free(pUText);
@@ -265,11 +267,13 @@ static int icuTokenize(
       sqlite3_free(pMap);
       return SQLITE_ERROR;
     }
-    if (c > 0xFFFF) {
+    if (c > 0xFFFF && iU16 >= 2) {  // Bounds check before accessing iU16-2
       pMap[iU16 - 1] = pMap[iU16 - 2]; // Surrogate pair
     }
   }
-  pMap[iU16] = nText;
+  if (iU16 <= nText + 1) {  // Bounds check before assignment
+    pMap[iU16] = nText;
+  }
 
   // Set text for break iterator
   ubrk_setText(pTokenizer->pBreakIterator, pUText, iU16, &status);
@@ -289,70 +293,101 @@ static int icuTokenize(
   int32_t iPrev = ubrk_first(pTokenizer->pBreakIterator);
   int32_t iNext;
   while ((iNext = ubrk_next(pTokenizer->pBreakIterator)) != UBRK_DONE) {
+    // Bounds checking for array access
+    if (iPrev < 0 || iNext < 0 || iPrev > iU16 || iNext > iU16) {
+      result = SQLITE_ERROR;
+      goto cleanup;
+    }
+
     int32_t wordStatus = ubrk_getRuleStatus(pTokenizer->pBreakIterator);
     if (wordStatus >= UBRK_WORD_NONE && wordStatus < UBRK_WORD_NONE_LIMIT) {
       iPrev = iNext;
       continue;
     }
 
-    int32_t iStartByte = pMap[iPrev];
-    int32_t iEndByte = pMap[iNext];
-    int nTokenByte = iEndByte - iStartByte;
-    if (nTokenByte <= 0) {
+    // Bounds checking for pMap array access
+    if (iPrev >= 0 && iPrev < nText + 2 && iNext >= 0 && iNext < nText + 2) {
+      int32_t iStartByte = pMap[iPrev];
+      int32_t iEndByte = pMap[iNext];
+      int nTokenByte = iEndByte - iStartByte;
+      if (nTokenByte <= 0) {
+        iPrev = iNext;
+        continue;
+      }
+
+      // Process the token
+      int32_t nSrc = iNext - iPrev;
+
+      // Grow buffer if needed for transliteration
+      // Use a more conservative estimate for buffer size
+      int32_t requiredBufSize = (nSrc * 3) + 512;  // Increased multiplier and base size
+      if (nBuf < requiredBufSize) {
+        UChar *newBuf = (UChar*)sqlite3_realloc(buf, requiredBufSize * sizeof(UChar));
+        if (!newBuf) {
+          result = SQLITE_NOMEM;
+          goto cleanup;
+        }
+        buf = newBuf;
+        nBuf = requiredBufSize;
+      }
+
+      // Ensure we don't exceed buffer bounds when copying
+      int32_t copyLen = (nSrc < nBuf) ? nSrc : (nBuf - 1);
+      u_strncpy(buf, pUText + iPrev, copyLen);
+      buf[copyLen] = 0;  // Null terminate for safety
+
+      int32_t limit = copyLen;
+      status = U_ZERO_ERROR;
+      utrans_transUChars(pTokenizer->pTransliterator, buf, &copyLen, nBuf, 0, &limit, &status);
+      if (U_FAILURE(status)) {
+        result = SQLITE_ERROR;
+        goto cleanup;
+      }
+      copyLen = limit;
+
+      // Convert back to UTF-8
+      // Use a more conservative estimate for UTF-8 buffer size
+      int32_t requiredDestSize = (copyLen * 4) + 1024;  // Increased multiplier and base size
+      if (nDest < requiredDestSize) {
+        char *newDest = (char*)sqlite3_realloc(dest, requiredDestSize);
+        if (!newDest) {
+          result = SQLITE_NOMEM;
+          goto cleanup;
+        }
+        dest = newDest;
+        nDest = requiredDestSize;
+      }
+
+      int32_t utf8Len = 0;
+      status = U_ZERO_ERROR;
+      // Ensure we don't exceed buffer bounds for UTF-8 conversion
+      int32_t safeCopyLen = (copyLen < nBuf) ? copyLen : (nBuf - 1);
+      u_strToUTF8WithSub(dest, nDest, &utf8Len, buf, safeCopyLen, 0xFFFD, NULL, &status);
+      if (U_FAILURE(status)) {
+        result = SQLITE_ERROR;
+        goto cleanup;
+      }
+
+      // Ensure we don't pass invalid parameters to xToken
+      if (dest && utf8Len > 0 && utf8Len <= nDest) {
+        if (xToken(pCtx, 0, dest, utf8Len, iStartByte, iEndByte) != SQLITE_OK) {
+          result = SQLITE_ERROR;
+          goto cleanup;
+        }
+      } else if (utf8Len > 0) {
+        // Handle case where utf8Len exceeds buffer but we still have data
+        int safeLen = (utf8Len <= nDest) ? utf8Len : nDest;
+        if (safeLen > 0 && xToken(pCtx, 0, dest, safeLen, iStartByte, iEndByte) != SQLITE_OK) {
+          result = SQLITE_ERROR;
+          goto cleanup;
+        }
+      }
+
+      iPrev = iNext;
+    } else {
       iPrev = iNext;
       continue;
     }
-
-    int32_t nSrc = iNext - iPrev;
-
-    // Grow buffer if needed
-    int32_t requiredBufSize = (nSrc * 2) + 256;
-    if (nBuf < requiredBufSize) {
-      UChar *newBuf = (UChar*)sqlite3_realloc(buf, requiredBufSize * sizeof(UChar));
-      if (!newBuf) {
-        result = SQLITE_NOMEM;
-        goto cleanup;
-      }
-      buf = newBuf;
-      nBuf = requiredBufSize;
-    }
-
-    u_strncpy(buf, pUText + iPrev, nSrc);
-    int32_t limit = nSrc;
-    status = U_ZERO_ERROR;
-    utrans_transUChars(pTokenizer->pTransliterator, buf, &nSrc, nBuf, 0, &limit, &status);
-    if (U_FAILURE(status)) {
-      result = SQLITE_ERROR;
-      goto cleanup;
-    }
-    nSrc = limit;
-
-    // Convert back to UTF-8
-    int32_t requiredDestSize = (nSrc * 4) + 512;
-    if (nDest < requiredDestSize) {
-      char *newDest = (char*)sqlite3_realloc(dest, requiredDestSize);
-      if (!newDest) {
-        result = SQLITE_NOMEM;
-        goto cleanup;
-      }
-      dest = newDest;
-      nDest = requiredDestSize;
-    }
-
-    int32_t utf8Len = 0;
-    status = U_ZERO_ERROR;
-    u_strToUTF8WithSub(dest, nDest, &utf8Len, buf, limit, 0xFFFD, NULL, &status);
-    if (U_FAILURE(status)) {
-      result = SQLITE_ERROR;
-      goto cleanup;
-    }
-
-    if (xToken(pCtx, 0, dest, utf8Len, iStartByte, iEndByte) != SQLITE_OK) {
-      result = SQLITE_ERROR;
-      goto cleanup;
-    }
-
-    iPrev = iNext;
   }
 
 cleanup:

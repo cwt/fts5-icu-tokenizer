@@ -1,4 +1,4 @@
-# FTS5 ICU Tokenizer for SQLite (v2)
+# FTS5 ICU Tokenizer for SQLite
 
 This project provides custom FTS5 tokenizers for SQLite that use the International Components for Unicode (ICU) library to provide robust word segmentation for various languages.
 
@@ -344,7 +344,7 @@ While the universal tokenizer can handle text in any supported language, it has 
 
 ## Legacy FTS5 v1 Implementation (Deprecated)
 
-The original FTS5 v1 implementation is still available for backward compatibility, but it is deprecated and no longer recommended for new projects. It does not fully comply with the current FTS5 API specifications.
+The original FTS5 v1 implementation is still available for backward compatibility, but it is deprecated and no longer recommended for new projects. It uses the older FTS5 tokenizer API which lacks several important features.
 
 To use the legacy v1 implementation, load the v1 library files:
 
@@ -358,10 +358,21 @@ CREATE VIRTUAL TABLE documents USING fts5(
 );
 ```
 
-Note that the v1 implementation:
-- Uses outdated API structures
-- Has incorrect function signatures
-- Does not properly handle FTS5 flags
-- Is not compliant with current FTS5 documentation
+### Differences between v1 and v2 APIs
 
-We strongly recommend migrating to the v2 implementation for all new projects and existing projects when possible.
+The v2 implementation uses the newer `fts5_tokenizer_v2` API structure which provides several advantages over the v1 API:
+
+1. **Locale Support**: The v2 API includes `pLocale` and `nLocale` parameters in the `xTokenize` method, allowing tokenizers to receive and utilize locale information for more effective text processing.
+
+2. **Version Tracking**: The v2 API includes an `iVersion` field that explicitly identifies the API version, making compatibility management easier.
+
+3. **Better Internationalization**: With locale support, v2 tokenizers can implement language-specific tokenization rules, such as language-specific stemming, case folding, and stop word handling.
+
+4. **Enhanced Function Signatures**: The v2 API provides proper function signatures that comply with current FTS5 documentation.
+
+The v1 implementation:
+- Uses the deprecated `fts5_tokenizer` structure without locale support
+- Lacks proper locale-aware text processing capabilities
+- Uses outdated API structures that don't fully comply with current FTS5 specifications
+
+We strongly recommend migrating to the v2 implementation for all new projects and existing projects when possible, especially for applications that process multilingual text or require locale-specific text processing features.

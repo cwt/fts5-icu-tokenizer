@@ -1,8 +1,80 @@
 # FTS5 ICU Tokenizer for SQLite - Implementation
 
-This project now uses the FTS5 v2 API implementation as the default, which complies with the FTS5 v2 API specifications.
+This project now uses the FTS5 v2 API implementation as the default, which complies with the FTS5 v2 API specifications and provides enhanced capabilities over the legacy v1 API.
 
 The legacy v1 implementation is still available for backward compatibility but is deprecated.
+
+## Advantages of the FTS5 v2 API
+
+The FTS5 v2 API provides several important advantages over the v1 API:
+
+### 1. Locale Support
+The most significant enhancement in the v2 API is the addition of `pLocale` and `nLocale` parameters to the `xTokenize` method. This allows tokenizers to:
+- Receive locale information for text processing
+- Adjust tokenization behavior based on language-specific rules
+- Support internationalization more effectively
+
+### 2. Version Tracking
+The v2 API includes an `iVersion` field that explicitly identifies the API version, making it easier to manage compatibility between different tokenizer implementations.
+
+### 3. Better Internationalization
+With locale support, v2 tokenizers can implement language-specific tokenization rules, such as:
+- Language-specific stemming
+- Locale-aware case folding
+- Language-specific stop word handling
+
+### 4. Enhanced Function Signatures
+The v2 API provides proper function signatures that comply with current FTS5 documentation, ensuring better integration with SQLite's FTS5 subsystem.
+
+## API Structure Differences
+
+### v1 API Structure (fts5_tokenizer)
+```c
+typedef struct fts5_tokenizer fts5_tokenizer;
+struct fts5_tokenizer {
+  int (*xCreate)(void*, const char **azArg, int nArg, Fts5Tokenizer **ppOut);
+  void (*xDelete)(Fts5Tokenizer*);
+  int (*xTokenize)(Fts5Tokenizer*, 
+      void *pCtx,
+      int flags,
+      const char *pText, int nText,
+      int (*xToken)(
+        void *pCtx,
+        int tflags,
+        const char *pToken,
+        int nToken,
+        int iStart,
+        int iEnd
+      )
+  );
+};
+```
+
+### v2 API Structure (fts5_tokenizer_v2)
+```c
+typedef struct fts5_tokenizer_v2 fts5_tokenizer_v2;
+struct fts5_tokenizer_v2 {
+  int iVersion;             /* Currently always 2 */
+  int (*xCreate)(void*, const char **azArg, int nArg, Fts5Tokenizer **ppOut);
+  void (*xDelete)(Fts5Tokenizer*);
+  int (*xTokenize)(Fts5Tokenizer*, 
+      void *pCtx,
+      int flags,
+      const char *pText, int nText, 
+      const char *pLocale, int nLocale,  /* NEW in v2 */
+      int (*xToken)(
+        void *pCtx,
+        int tflags,
+        const char *pToken,
+        int nToken,
+        int iStart,
+        int iEnd
+      )
+  );
+};
+```
+
+The addition of the `pLocale` and `nLocale` parameters in the `xTokenize` method is the key enhancement that enables better internationalization support in the v2 API.
 
 ## Files
 

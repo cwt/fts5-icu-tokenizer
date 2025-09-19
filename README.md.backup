@@ -1,8 +1,8 @@
-# FTS5 ICU Tokenizer for SQLite (v2)
+# FTS5 ICU Tokenizer for SQLite
 
 This project provides custom FTS5 tokenizers for SQLite that use the International Components for Unicode (ICU) library to provide robust word segmentation for various languages.
 
-The implementation fully complies with the FTS5 v2 API specifications and is written in C for maximum stability and performance, making it suitable for high-availability systems. The target locale is configurable at build time, with support for both universal and locale-specific tokenizers.
+It is written in C for maximum stability and performance, making it suitable for high-availability systems. The target locale is configurable at build time, with support for both universal and locale-specific tokenizers.
 
 ## Prerequisites
 
@@ -127,7 +127,10 @@ This project can be built on Windows using Visual Studio and CMake. Here's how:
    ```
 3. Configure with CMake (replace paths with your actual paths):
    ```powershell
-   cmake -G "Visual Studio 17 2022" -T host=x64 -A x64 .. -DICU_ROOT="C:\icu" -DSQLite3_INCLUDE_DIR="C:\sqlite\include" -DSQLite3_LIBRARY="C:\sqlite\sqlite3.lib"
+   cmake -G "Visual Studio 17 2022" -T host=x64 -A x64 .. `
+     -DICU_ROOT="C:\icu" `
+     -DSQLite3_INCLUDE_DIR="C:\sqlite\include" `
+     -DSQLite3_LIBRARY="C:\sqlite\sqlite3.lib"
    ```
 4. Build the project:
    ```powershell
@@ -137,7 +140,11 @@ This project can be built on Windows using Visual Studio and CMake. Here's how:
 To build for a specific locale (e.g., Thai), add the LOCALE parameter during CMake configuration:
 
 ```powershell
-cmake -G "Visual Studio 17 2022" -T host=x64 -A x64 .. -DICU_ROOT="C:\icu" -DSQLite3_INCLUDE_DIR="C:\sqlite\include" -DSQLite3_LIBRARY="C:\sqlite\sqlite3.lib" -DLOCALE=th
+cmake -G "Visual Studio 17 2022" -T host=x64 -A x64 .. `
+  -DICU_ROOT="C:\icu" `
+  -DSQLite3_INCLUDE_DIR="C:\sqlite\include" `
+  -DSQLite3_LIBRARY="C:\sqlite\sqlite3.lib" `
+  -DLOCALE=th
 ```
 
 This will create `fts5_icu_th.dll` and register the tokenizer as `icu_th`.
@@ -148,7 +155,7 @@ After successful compilation, you'll find `fts5_icu.dll` (or `fts5_icu_xx.dll` f
 
 #### Method 1: Simple Load (Windows)
 
-The easiest and most reliable method on Windows is to copy the built `fts5_icu_v2.dll` along with `icudt77.dll` and `icuuc77.dll` from the pre-compiled ICU4C (in this case ICU77) to your current directory, then use the command:
+The easiest and most reliable method on Windows is to copy the built `fts5_icu.dll` along with `icudt77.dll` and `icuuc77.dll` from the pre-compiled ICU4C (in this case ICU77) to your current directory, then use the command:
 
 ```sql
 .load fts5_icu.dll
@@ -169,7 +176,7 @@ This method is recommended over full path loading because of how Windows resolve
 
 By copying the DLLs to the current directory and using the simple load command, you ensure that all required DLLs are found correctly.
 
-## Usage (FTS5 v2 - Default and Recommended)
+## Usage
 
 After compiling, you can load the specific tokenizer you built into SQLite.
 
@@ -342,26 +349,23 @@ While the universal tokenizer can handle text in any supported language, it has 
 - **Use locale-specific tokenizers** when you know the primary language of your text data and performance is important.
 - **Use the universal tokenizer** when dealing with mixed-language content or when the language of the text is unknown at build time.
 
-## Legacy FTS5 v1 Implementation (Deprecated)
+## FTS5 v2 Implementation
 
-The original FTS5 v1 implementation is still available for backward compatibility, but it is deprecated and no longer recommended for new projects. It does not fully comply with the current FTS5 API specifications.
+This project now includes an updated implementation that complies with the FTS5 v2 API specifications. See [docs/FTS5_V2_IMPLEMENTATION.md](docs/FTS5_V2_IMPLEMENTATION.md) for details on the improvements and how to use the v2 implementation.
 
-To use the legacy v1 implementation, load the v1 library files:
+The v2 implementation provides:
+- Full compliance with FTS5 v2 API specifications
+- Proper function signatures as specified in the SQLite documentation
+- Enhanced error handling and reporting
+- Backward compatibility with existing tokenizer names
 
+To use the v2 implementation, simply load the v2 library files instead of the original ones:
 ```sql
--- Load the legacy v1 library
-.load ./build/libfts5_icu_legacy.so
+-- Load the v2 library instead of the original
+.load ./build/libfts5_icu_v2.so
 
 CREATE VIRTUAL TABLE documents USING fts5(
     content,
     tokenize = 'icu'  -- Same tokenizer name as before
 );
 ```
-
-Note that the v1 implementation:
-- Uses outdated API structures
-- Has incorrect function signatures
-- Does not properly handle FTS5 flags
-- Is not compliant with current FTS5 documentation
-
-We strongly recommend migrating to the v2 implementation for all new projects and existing projects when possible.

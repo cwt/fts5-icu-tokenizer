@@ -7,7 +7,7 @@ echo "Testing FTS5 ICU Tokenizer"
 
 # Build the project first
 echo "Building project..."
-./scripts/build_v2.sh
+./scripts/build.sh
 
 # Test universal tokenizer
 echo "Testing universal tokenizer..."

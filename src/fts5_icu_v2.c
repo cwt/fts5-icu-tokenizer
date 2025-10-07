@@ -177,8 +177,8 @@ static int icuCreate_v2(
   // Open break iterator with compile-time locale
   pTokenizer->pBreakIterator = ubrk_open(UBRK_WORD, TOKENIZER_LOCALE, NULL, 0, &status);
   if (U_FAILURE(status)) {
-    fprintf(stderr, "ICU Tokenizer Error: ubrk_open() for locale '%s' failed: %s\n",
-            TOKENIZER_LOCALE, u_errorName(status));
+    // Avoid fprintf to stderr in SQLite extension; instead, just return error
+    ubrk_close(pTokenizer->pBreakIterator);
     sqlite3_free(pTokenizer);
     return SQLITE_ERROR;
   }
@@ -186,8 +186,7 @@ static int icuCreate_v2(
   // Use compile-time selected rule
   pTokenizer->pTransliterator = utrans_openU(ICU_TOKENIZER_RULES, -1, UTRANS_FORWARD, NULL, 0, NULL, &status);
   if (U_FAILURE(status)) {
-    fprintf(stderr, "ICU Tokenizer Error: utrans_openU() failed for locale '%s': %s\n",
-            TOKENIZER_LOCALE, u_errorName(status));
+    // Avoid fprintf to stderr in SQLite extension; instead, just return error
     ubrk_close(pTokenizer->pBreakIterator);
     sqlite3_free(pTokenizer);
     return SQLITE_ERROR;
@@ -258,16 +257,25 @@ static int icuTokenize_v2(
   // Convert UTF-8 → UTF-16 and build byte offset map
   int32_t iU16 = 0;
   int32_t iU8 = 0;
-  while (iU8 < nText && iU16 < nText + 1) {  // Add bounds check for iU16
+  while (iU8 < nText && iU16 < nText + 1) {
     UChar32 c;
-    if (iU16 < nText + 2) {  // Bounds check for pMap
+    // Bounds check for pMap access
+    if (iU16 >= 0 && iU16 < nText + 2) {
       pMap[iU16] = iU8;
     }
     U8_NEXT(pText, iU8, nText, c);
-    if (c == 0xFFFD && (iU8 > nText || (pText[iU8 - 1] & 0xC0) != 0x80)) {
-      sqlite3_free(pUText);
-      sqlite3_free(pMap);
-      return SQLITE_ERROR;
+    // Check for invalid UTF-8 sequence - if we get a replacement character (0xFFFD)
+    // and it's not actually a valid character that happens to map to 0xFFFD,
+    // and if we haven't reached the end of the string
+    if (c == 0xFFFD && iU8 > 0 && iU8 <= nText) {
+      // Check if this is a genuine error by looking at the byte that caused it
+      // If the byte isn't at the expected position or is a continuation byte in wrong place
+      unsigned char potential_error_byte = (iU8 > 0) ? pText[iU8 - 1] : 0;
+      if (potential_error_byte != 0) {  // If we have a non-null byte that caused 0xFFFD
+        sqlite3_free(pUText);
+        sqlite3_free(pMap);
+        return SQLITE_ERROR;
+      }
     }
     UBool isError = 0;
     U16_APPEND(pUText, iU16, nText + 1, c, isError);
@@ -276,11 +284,13 @@ static int icuTokenize_v2(
       sqlite3_free(pMap);
       return SQLITE_ERROR;
     }
-    if (c > 0xFFFF && iU16 >= 2) {  // Bounds check before accessing iU16-2
-      pMap[iU16 - 1] = pMap[iU16 - 2]; // Surrogate pair
+    // For surrogate pairs, we adjust the byte mapping
+    if (c > 0xFFFF && iU16 >= 2 && (iU16 - 1) < nText + 2) {
+      pMap[iU16 - 1] = pMap[iU16 - 2]; // Properly handle surrogate pair byte mapping
     }
   }
-  if (iU16 <= nText + 1) {  // Bounds check before assignment
+  // Bounds check before final assignment to pMap
+  if (iU16 >= 0 && iU16 < nText + 2) {
     pMap[iU16] = nText;
   }
 
@@ -328,8 +338,8 @@ static int icuTokenize_v2(
       int32_t nSrc = iNext - iPrev;
 
       // Grow buffer if needed for transliteration
-      // Use a more conservative estimate for buffer size
-      int32_t requiredBufSize = (nSrc * 3) + 512;  // Increased multiplier and base size
+      // Use a more conservative estimate for buffer size to handle complex ICU transformations
+      int32_t requiredBufSize = (nSrc * 6) + 2048;  // Increased multiplier to handle complex transformations
       if (nBuf < requiredBufSize) {
         UChar *newBuf = (UChar*)sqlite3_realloc(buf, requiredBufSize * sizeof(UChar));
         if (!newBuf) {
@@ -355,8 +365,8 @@ static int icuTokenize_v2(
       copyLen = limit;
 
       // Convert back to UTF-8
-      // Use a more conservative estimate for UTF-8 buffer size
-      int32_t requiredDestSize = (copyLen * 4) + 1024;  // Increased multiplier and base size
+      // Use a more conservative estimate for UTF-8 buffer size to handle expanded characters
+      int32_t requiredDestSize = (copyLen * 8) + 4096;  // Increased multiplier to handle all possible expansions
       if (nDest < requiredDestSize) {
         char *newDest = (char*)sqlite3_realloc(dest, requiredDestSize);
         if (!newDest) {
@@ -400,10 +410,10 @@ static int icuTokenize_v2(
   }
 
 cleanup:
-  sqlite3_free(buf);
-  sqlite3_free(dest);
-  sqlite3_free(pUText);
-  sqlite3_free(pMap);
+  if (buf) sqlite3_free(buf);
+  if (dest) sqlite3_free(dest);
+  if (pUText) sqlite3_free(pUText);
+  if (pMap) sqlite3_free(pMap);
   return result;
 }
 

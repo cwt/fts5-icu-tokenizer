@@ -276,9 +276,6 @@ static int icuTokenize(
         }
         UChar *newBuf = (UChar*)sqlite3_realloc(buf, requiredBufSize * sizeof(UChar));
         if (!newBuf) {
-          if (buf) {  // If realloc failed and buf was not NULL, we need to free the original buf
-            sqlite3_free(buf);
-          }
           result = SQLITE_NOMEM;
           goto cleanup;
         }
@@ -313,9 +310,6 @@ static int icuTokenize(
       if (nDest < requiredDestSize) {
         char *newDest = (char*)sqlite3_realloc(dest, requiredDestSize);
         if (!newDest) {
-          if (dest) {  // If realloc failed and dest was not NULL, we need to free the original dest
-            sqlite3_free(dest);
-          }
           result = SQLITE_NOMEM;
           goto cleanup;
         }
@@ -328,21 +322,18 @@ static int icuTokenize(
       // Ensure we don't exceed buffer bounds for UTF-8 conversion
       int32_t safeCopyLen = (copyLen < nBuf) ? copyLen : (nBuf - 1);
       u_strToUTF8WithSub(dest, nDest, &utf8Len, buf, safeCopyLen, 0xFFFD, NULL, &status);
-      if (U_FAILURE(status) || utf8Len < 0 || utf8Len > nDest) {
+      if (U_FAILURE(status) || utf8Len < 0) {
         result = SQLITE_ERROR;
         goto cleanup;
       }
+      // Note: utf8Len can be larger than nDest if the buffer was too small, but ICU will truncate
+      // The actual usable length is min(utf8Len, nDest)
 
       // Ensure we don't pass invalid parameters to xToken
-      if (dest && utf8Len > 0 && utf8Len <= nDest) {
-        if (xToken(pCtx, 0, dest, utf8Len, iStartByte, iEndByte) != SQLITE_OK) {
-          result = SQLITE_ERROR;
-          goto cleanup;
-        }
-      } else if (utf8Len > 0) {
-        // Handle case where utf8Len exceeds buffer but we still have data
+      if (dest && utf8Len > 0) {
+        // Handle case where utf8Len might exceed buffer but ICU truncated the output
         int safeLen = (utf8Len <= nDest) ? utf8Len : nDest;
-        if (safeLen > 0 && xToken(pCtx, 0, dest, safeLen, iStartByte, iEndByte) != SQLITE_OK) {
+        if (xToken(pCtx, 0, dest, safeLen, iStartByte, iEndByte) != SQLITE_OK) {
           result = SQLITE_ERROR;
           goto cleanup;
         }

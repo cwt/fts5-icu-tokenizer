@@ -2,11 +2,11 @@
 
 # Build script for all supported locales and the universal tokenizer
 # This script builds separate libraries for each locale with optimized rules
-# Builds both default (v2) and legacy (v1) implementations
+# Builds the single v2 API implementation
 
 echo "=================================================="
 echo "Building all supported locales and the universal tokenizer..."
-echo "Building both default (v2) and legacy (v1) implementations..."
+echo "Building the single v2 API implementation..."
 echo "=================================================="
 
 # Create build directory if it doesn't exist
@@ -97,13 +97,9 @@ echo "=================================================="
 echo "All builds completed successfully!"
 echo "=================================================="
 echo "Built libraries:"
-echo "  - Universal (default): libfts5_icu.so (v2 implementation)"
-echo "  - Universal (legacy): libfts5_icu_legacy.so (v1 implementation)"
-echo "  - Universal (v2): libfts5_icu_v2.so (v2 implementation)"
+echo "  - Universal: libfts5_icu.so (v2 implementation)"
 for locale in "${LOCALES[@]}"; do
-    echo "  - $locale (default): libfts5_icu_${locale}.so (v2 implementation)"
-    echo "  - $locale (legacy): libfts5_icu_legacy_${locale}.so (v1 implementation)"
-    echo "  - $locale (v2): libfts5_icu_${locale}_v2.so (v2 implementation)"
+    echo "  - $locale: libfts5_icu_${locale}.so (v2 implementation)"
 done
 echo ""
 echo "To run tests, execute: ./scripts/test_all.sh"

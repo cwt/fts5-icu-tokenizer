@@ -7,6 +7,7 @@
  * control over memory management, making it suitable for high-volume,
  * long-running systems.
  *
+ * Updated to comply with FTS5 v2 API specifications.
  * The user defines only:
  *   -DTOKENIZER_LOCALE="ja"   (or "zh", "th", etc.)
  *
@@ -14,9 +15,9 @@
  * are derived automatically at compile time.
  */
 
-#include "fts5_icu_common.h"
+#include "fts5_icu.h"
 
-// Define the fts5_api pointer before use
+// Define the fts5_api pointer before use - this must come after sqlite3ext.h is included
 SQLITE_EXTENSION_INIT1
 
 // Helper function to get the FTS5 API pointer from the database connection.
@@ -31,17 +32,17 @@ static fts5_api *fts5_api_from_db(sqlite3 *db){
   return pApi;
 }
 
-// Forward declarations
+// Forward declarations for v2 API
 static int icuCreate(void*, const char**, int, Fts5Tokenizer**);
 static void icuDelete(Fts5Tokenizer*);
-static int icuTokenize(Fts5Tokenizer*, void*, int, const char*, int, int (*)(void*, int, const char*, int, int, int));
+static int icuTokenize(Fts5Tokenizer*, void*, int, const char*, int, const char*, int, int (*)(void*, int, const char*, int, int, int));
 
-// Main tokenizer struct
-typedef struct IcuTokenizerV1 {
-    fts5_tokenizer fts_tokenizer; // Must be first member
+// Main tokenizer struct for v2 API
+typedef struct IcuTokenizerV2 {
+    fts5_tokenizer_v2 fts_tokenizer_v2; // Must be first member for v2 API
     UBreakIterator *pBreakIterator;
     UTransliterator *pTransliterator;
-} IcuTokenizerV1;
+} IcuTokenizerV2;
 
 // ========================================================================
 // === FTS5 TOKENIZER CREATION CALLBACK (xCreate) =========================
@@ -57,9 +58,9 @@ static int icuCreate(
   UNUSED_PARAMETER(azArg);
   UNUSED_PARAMETER(nArg);
 
-  IcuTokenizerV1 *pTokenizer = (IcuTokenizerV1*)sqlite3_malloc(sizeof(IcuTokenizerV1));
+  IcuTokenizerV2 *pTokenizer = (IcuTokenizerV2*)sqlite3_malloc(sizeof(IcuTokenizerV2));
   if (!pTokenizer) return SQLITE_NOMEM;
-  memset(pTokenizer, 0, sizeof(IcuTokenizerV1));
+  memset(pTokenizer, 0, sizeof(IcuTokenizerV2));
 
   UErrorCode status = U_ZERO_ERROR;
 
@@ -81,10 +82,11 @@ static int icuCreate(
     return SQLITE_ERROR;
   }
 
-  // Setup vtable
-  pTokenizer->fts_tokenizer.xCreate = icuCreate;
-  pTokenizer->fts_tokenizer.xDelete = icuDelete;
-  pTokenizer->fts_tokenizer.xTokenize = icuTokenize;
+  // Setup vtable for v2 API
+  pTokenizer->fts_tokenizer_v2.iVersion = 2;
+  pTokenizer->fts_tokenizer_v2.xCreate = icuCreate;
+  pTokenizer->fts_tokenizer_v2.xDelete = icuDelete;
+  pTokenizer->fts_tokenizer_v2.xTokenize = icuTokenize;
 
   *ppOut = (Fts5Tokenizer*)pTokenizer;
   return SQLITE_OK;
@@ -96,7 +98,7 @@ static int icuCreate(
 
 static void icuDelete(Fts5Tokenizer *pTok){
   if (!pTok) return;
-  IcuTokenizerV1 *pTokenizer = (IcuTokenizerV1*)pTok;
+  IcuTokenizerV2 *pTokenizer = (IcuTokenizerV2*)pTok;
   ubrk_close(pTokenizer->pBreakIterator);
   utrans_close(pTokenizer->pTransliterator);
   sqlite3_free(pTokenizer);
@@ -112,10 +114,22 @@ static int icuTokenize(
   int flags,
   const char *pText,
   int nText,
-  int (*xToken)(void*, int, const char*, int, int, int)
+  const char *pLocale,
+  int nLocale,
+  int (*xToken)(
+    void *pCtx,
+    int tflags,
+    const char *pToken,
+    int nToken,
+    int iStart,
+    int iEnd
+  )
 ){
   UNUSED_PARAMETER(flags);
-  IcuTokenizerV1 *pTokenizer = (IcuTokenizerV1*)pTok;
+  UNUSED_PARAMETER(pLocale);
+  UNUSED_PARAMETER(nLocale);
+  
+  IcuTokenizerV2 *pTokenizer = (IcuTokenizerV2*)pTok;
   UErrorCode status = U_ZERO_ERROR;
 
   if (!pText || nText <= 0) return SQLITE_OK;
@@ -327,13 +341,20 @@ int PASTE(sqlite3_ftsicu, INIT_LOCALE_SUFFIX_FOR_FUNCTION, _init)(
     return SQLITE_ERROR;
   }
 
-  fts5_tokenizer tokenizer = {
+  // Check if v2 API is available
+  if (pFts5Api->iVersion < 2) {
+    *pzErrMsg = sqlite3_mprintf("FTS5 v2 API not available");
+    return SQLITE_ERROR;
+  }
+
+  fts5_tokenizer_v2 tokenizer = {
+    .iVersion = 2,
     .xCreate = icuCreate,
     .xDelete = icuDelete,
     .xTokenize = icuTokenize
   };
 
-  int rc = pFts5Api->xCreateTokenizer(pFts5Api, TOKENIZER_NAME, NULL, &tokenizer, NULL);
+  int rc = pFts5Api->xCreateTokenizer_v2(pFts5Api, TOKENIZER_NAME, NULL, &tokenizer, NULL);
   if (rc != SQLITE_OK) {
     *pzErrMsg = sqlite3_mprintf("Failed to register ICU tokenizer: %s", sqlite3_errstr(rc));
   }

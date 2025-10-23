@@ -113,14 +113,8 @@ endif()
 # Create the shared library from the source file.
 add_library(fts5_icu SHARED src/fts5_icu.c)
 
-# Create the v2 shared library from the v2 source file.
-add_library(fts5_icu_v2 SHARED src/fts5_icu_v2.c)
-
-# Set the dynamic output name for the legacy library file.
-set_target_properties(fts5_icu PROPERTIES OUTPUT_NAME "fts5_icu_legacy${LIB_SUFFIX}")
-
 # Set the dynamic output name for the library file.
-set_target_properties(fts5_icu_v2 PROPERTIES OUTPUT_NAME "fts5_icu${LIB_SUFFIX}")
+set_target_properties(fts5_icu PROPERTIES OUTPUT_NAME "fts5_icu${LIB_SUFFIX}")
 
 # Pass the locale, tokenizer name, and init function suffix to the C code.
 # The escaped quotes are important for passing string values.
@@ -132,39 +126,23 @@ target_compile_definitions(fts5_icu PRIVATE
   "C_INIT_SUFFIX_NO_UNDERSCORE=${C_INIT_SUFFIX_NO_UNDERSCORE}"
 )
 
-# Pass the locale, tokenizer name, and init function suffix to the v2 C code.
-target_compile_definitions(fts5_icu_v2 PRIVATE
-  "TOKENIZER_LOCALE=\"${LOCALE}\""
-  "TOKENIZER_NAME=\"${TOKENIZER_NAME}\""
-  "INIT_LOCALE_SUFFIX=${C_INIT_SUFFIX}"
-  "C_INIT_SUFFIX_NO_UNDERSCORE=${C_INIT_SUFFIX_NO_UNDERSCORE}"
-)
-
 # Define locale-specific macros for compile-time selection
 if(LOCALE STREQUAL "ja" OR LOCALE STREQUAL "jp")
   target_compile_definitions(fts5_icu PRIVATE TOKENIZER_LOCALE_JA)
-  target_compile_definitions(fts5_icu_v2 PRIVATE TOKENIZER_LOCALE_JA)
 elseif(LOCALE STREQUAL "zh" OR LOCALE STREQUAL "cn")
   target_compile_definitions(fts5_icu PRIVATE TOKENIZER_LOCALE_ZH)
-  target_compile_definitions(fts5_icu_v2 PRIVATE TOKENIZER_LOCALE_ZH)
 elseif(LOCALE STREQUAL "th")
   target_compile_definitions(fts5_icu PRIVATE TOKENIZER_LOCALE_TH)
-  target_compile_definitions(fts5_icu_v2 PRIVATE TOKENIZER_LOCALE_TH)
 elseif(LOCALE STREQUAL "ko" OR LOCALE STREQUAL "kr")
   target_compile_definitions(fts5_icu PRIVATE TOKENIZER_LOCALE_KO)
-  target_compile_definitions(fts5_icu_v2 PRIVATE TOKENIZER_LOCALE_KO)
 elseif(LOCALE STREQUAL "ar")
   target_compile_definitions(fts5_icu PRIVATE TOKENIZER_LOCALE_AR)
-  target_compile_definitions(fts5_icu_v2 PRIVATE TOKENIZER_LOCALE_AR)
 elseif(LOCALE STREQUAL "ru")
   target_compile_definitions(fts5_icu PRIVATE TOKENIZER_LOCALE_RU)
-  target_compile_definitions(fts5_icu_v2 PRIVATE TOKENIZER_LOCALE_RU)
 elseif(LOCALE STREQUAL "he" OR LOCALE STREQUAL "iw")
   target_compile_definitions(fts5_icu PRIVATE TOKENIZER_LOCALE_HE)
-  target_compile_definitions(fts5_icu_v2 PRIVATE TOKENIZER_LOCALE_HE)
 elseif(LOCALE STREQUAL "el" OR LOCALE STREQUAL "gr")
   target_compile_definitions(fts5_icu PRIVATE TOKENIZER_LOCALE_EL)
-  target_compile_definitions(fts5_icu_v2 PRIVATE TOKENIZER_LOCALE_EL)
 endif()
 
 # Link the library against the libraries found by CMake.
@@ -177,16 +155,13 @@ if(WIN32 AND DEFINED SQLite3_INCLUDE_DIR AND DEFINED SQLite3_LIBRARY)
     INTERFACE_INCLUDE_DIRECTORIES "${SQLite3_INCLUDE_DIR}"
   )
   target_link_libraries(fts5_icu PRIVATE ICU::i18n ICU::uc SQLite3::SQLite3)
-  target_link_libraries(fts5_icu_v2 PRIVATE ICU::i18n ICU::uc SQLite3::SQLite3)
 else()
   target_link_libraries(fts5_icu PRIVATE ICU::i18n ICU::uc SQLite::SQLite3)
-  target_link_libraries(fts5_icu_v2 PRIVATE ICU::i18n ICU::uc SQLite::SQLite3)
 endif()
 
 # On Windows, we need to define SQLITE_ENABLE_FTS5
 if(WIN32)
   target_compile_definitions(fts5_icu PRIVATE SQLITE_ENABLE_FTS5)
-  target_compile_definitions(fts5_icu_v2 PRIVATE SQLITE_ENABLE_FTS5)
 endif()
 
 
@@ -208,7 +183,7 @@ target_compile_definitions(test_locale_tokenizer PRIVATE SQLITE_ENABLE_FTS5)
 # Define where to install the compiled library.
 # This uses standard GNU locations. On Linux, this will typically be /usr/local/lib.
 include(GNUInstallDirs)
-install(TARGETS fts5_icu_v2 fts5_icu
+install(TARGETS fts5_icu
         LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
         ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
 

@@ -1,10 +1,10 @@
 /**
- * @file fts5_icu_common.h
- * @brief Common definitions and type definitions for ICU-based FTS5 tokenizers
+ * @file fts5_icu.h
+ * @brief Definitions and type definitions for ICU-based FTS5 tokenizer
  */
 
-#ifndef FTS5_ICU_COMMON_H
-#define FTS5_ICU_COMMON_H
+#ifndef FTS5_ICU_H
+#define FTS5_ICU_H
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -134,4 +134,4 @@ typedef struct IcuTokenizer {
 #define PASTE_IMPL(a,b,c) a##b##c
 #define PASTE(a,b,c) PASTE_IMPL(a,b,c)
 
-#endif // FTS5_ICU_COMMON_H
+#endif // FTS5_ICU_H

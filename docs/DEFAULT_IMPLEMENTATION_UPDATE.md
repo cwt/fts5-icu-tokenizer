@@ -10,7 +10,7 @@ This document summarizes the changes made to simplify the project to a single FT
 - Simplified codebase to single unified approach
 
 ### 2. Build System Updates (CMakeLists.txt)
-- Updated project version from 3.0 to 4.0
+- Updated project version from 3.0 to 4.2
 - Simplified library building to a single target:
   - Current implementation: `libfts5_icu*.so`
 

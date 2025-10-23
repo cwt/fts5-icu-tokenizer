@@ -164,6 +164,27 @@ static int icuTokenize(
     return SQLITE_NOMEM;
   }
 
+  // Count the actual number of Unicode code points to validate our buffer size assumption
+  int32_t actualCodePointCount = 0;
+  int32_t tempU8 = 0;
+  UErrorCode tempStatus = U_ZERO_ERROR;
+  while (tempU8 < nText) {
+    UChar32 tempC;
+    int32_t nextPos = tempU8;
+    U8_NEXT(pText, nextPos, nText, tempC);
+    if (U_FAILURE(tempStatus) || nextPos <= tempU8) break; // Invalid UTF-8 sequence
+    actualCodePointCount++;
+    tempU8 = nextPos;
+  }
+  
+  // Verify our buffer size assumption against actual code point count
+  // Add buffer for potential surrogate pairs (each code point could need 2 UChar)
+  if (actualCodePointCount > utf16Size / 2) {
+    sqlite3_free(pUText);
+    sqlite3_free(pMap);
+    return SQLITE_ERROR;  // Prevent buffer overflow
+  }
+  
   // Convert UTF-8 → UTF-16 and build byte offset map
   int32_t iU16 = 0;
   int32_t iU8 = 0;
@@ -288,6 +309,13 @@ static int icuTokenize(
       u_strncpy(buf, pUText + iPrev, copyLen);
       buf[copyLen] = 0;  // Null terminate for safety
 
+      // Validate the source buffer before transliteration
+      int32_t srcLength = iNext - iPrev;
+      if (srcLength <= 0 || srcLength >= nBuf) {
+        result = SQLITE_ERROR;
+        goto cleanup;
+      }
+
       int32_t limit = copyLen;
       status = U_ZERO_ERROR;
       utrans_transUChars(pTokenizer->pTransliterator, buf, &copyLen, nBuf, 0, &limit, &status);
@@ -297,6 +325,12 @@ static int icuTokenize(
       }
       // copyLen now contains the output length after transformation
       // limit contains the new limit position (not the output length)
+      
+      // Validate the output length after transformation
+      if (copyLen < 0 || copyLen > nBuf) {
+        result = SQLITE_ERROR;
+        goto cleanup;
+      }
 
       // Convert back to UTF-8
       // Use a more conservative estimate for UTF-8 buffer size to handle expanded characters
@@ -321,6 +355,11 @@ static int icuTokenize(
       status = U_ZERO_ERROR;
       // Ensure we don't exceed buffer bounds for UTF-8 conversion
       int32_t safeCopyLen = (copyLen < nBuf) ? copyLen : (nBuf - 1);
+      // Validate parameters before calling ICU function
+      if (safeCopyLen < 0 || nDest <= 0) {
+        result = SQLITE_ERROR;
+        goto cleanup;
+      }
       u_strToUTF8WithSub(dest, nDest, &utf8Len, buf, safeCopyLen, 0xFFFD, NULL, &status);
       if (U_FAILURE(status) || utf8Len < 0) {
         result = SQLITE_ERROR;
@@ -328,6 +367,12 @@ static int icuTokenize(
       }
       // Note: utf8Len can be larger than nDest if the buffer was too small, but ICU will truncate
       // The actual usable length is min(utf8Len, nDest)
+
+      // Additional validation to ensure utf8Len is reasonable
+      if (utf8Len > nDest * 4) {  // Maximum UTF-8 expansion is 4 bytes per code point
+        result = SQLITE_ERROR;
+        goto cleanup;
+      }
 
       // Ensure we don't pass invalid parameters to xToken
       if (dest && utf8Len > 0) {

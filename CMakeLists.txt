@@ -110,17 +110,11 @@ endif()
 
 # --- Configure the Library ---
 
-# Add the source file to a variable for clarity.
-set(SOURCES src/fts5_icu.c)
-
-# Add the v2 source file to a variable for clarity.
-set(SOURCES_V2 src/fts5_icu_v2.c)
-
 # Create the shared library from the source file.
-add_library(fts5_icu SHARED ${SOURCES})
+add_library(fts5_icu SHARED src/fts5_icu.c)
 
 # Create the v2 shared library from the v2 source file.
-add_library(fts5_icu_v2 SHARED ${SOURCES_V2})
+add_library(fts5_icu_v2 SHARED src/fts5_icu_v2.c)
 
 # Set the dynamic output name for the legacy library file.
 set_target_properties(fts5_icu PROPERTIES OUTPUT_NAME "fts5_icu_legacy${LIB_SUFFIX}")

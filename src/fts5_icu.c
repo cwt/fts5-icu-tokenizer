@@ -184,6 +184,12 @@ static int icuTokenize(
         return SQLITE_ERROR;
       }
     }
+    // Bounds check to ensure we have enough space for potentially two UChar values (for surrogate pairs)
+    if (iU16 + 1 >= utf16Size) {
+      sqlite3_free(pUText);
+      sqlite3_free(pMap);
+      return SQLITE_ERROR;  // Prevent buffer overflow
+    }
     // Store the original byte position BEFORE U16_APPEND modifies iU16
     int32_t originalU16Pos = iU16; // Save position BEFORE U16_APPEND
     UBool isError = 0;
@@ -228,8 +234,8 @@ static int icuTokenize(
   int32_t iPrev = ubrk_first(pTokenizer->pBreakIterator);
   int32_t iNext;
   while ((iNext = ubrk_next(pTokenizer->pBreakIterator)) != UBRK_DONE) {
-    // Bounds checking for array access
-    if (iPrev < 0 || iNext < 0 || iPrev > iU16 || iNext > iU16) {
+    // Bounds checking for array access - ensure positions are within our UTF-16 buffer
+    if (iPrev < 0 || iNext < 0 || iPrev > utf16Size || iNext > utf16Size) {
       result = SQLITE_ERROR;
       goto cleanup;
     }
@@ -292,7 +298,8 @@ static int icuTokenize(
         result = SQLITE_ERROR;
         goto cleanup;
       }
-      copyLen = limit;
+      // copyLen now contains the output length after transformation
+      // limit contains the new limit position (not the output length)
 
       // Convert back to UTF-8
       // Use a more conservative estimate for UTF-8 buffer size to handle expanded characters

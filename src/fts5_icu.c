@@ -215,7 +215,13 @@ static int icuTokenize(
 
       // Grow buffer if needed for transliteration
       // Use a more conservative estimate for buffer size to handle complex ICU transformations
-      int32_t requiredBufSize = (nSrc * 6) + 2048;  // Increased multiplier to handle complex transformations
+      // Check for integer overflow before multiplication
+      int32_t requiredBufSize = 0;
+      if (nSrc > (INT32_MAX - 2048) / 6) {
+        result = SQLITE_ERROR;  // Prevent integer overflow
+        goto cleanup;
+      }
+      requiredBufSize = (nSrc * 6) + 2048;  // Increased multiplier to handle complex transformations
       if (nBuf < requiredBufSize) {
         UChar *newBuf = (UChar*)sqlite3_realloc(buf, requiredBufSize * sizeof(UChar));
         if (!newBuf) {
@@ -242,7 +248,13 @@ static int icuTokenize(
 
       // Convert back to UTF-8
       // Use a more conservative estimate for UTF-8 buffer size to handle expanded characters
-      int32_t requiredDestSize = (copyLen * 8) + 4096;  // Increased multiplier to handle all possible expansions
+      // Check for integer overflow before multiplication
+      int32_t requiredDestSize = 0;
+      if (copyLen > (INT32_MAX - 4096) / 8) {
+        result = SQLITE_ERROR;  // Prevent integer overflow
+        goto cleanup;
+      }
+      requiredDestSize = (copyLen * 8) + 4096;  // Increased multiplier to handle all possible expansions
       if (nDest < requiredDestSize) {
         char *newDest = (char*)sqlite3_realloc(dest, requiredDestSize);
         if (!newDest) {
@@ -258,7 +270,7 @@ static int icuTokenize(
       // Ensure we don't exceed buffer bounds for UTF-8 conversion
       int32_t safeCopyLen = (copyLen < nBuf) ? copyLen : (nBuf - 1);
       u_strToUTF8WithSub(dest, nDest, &utf8Len, buf, safeCopyLen, 0xFFFD, NULL, &status);
-      if (U_FAILURE(status)) {
+      if (U_FAILURE(status) || utf8Len < 0 || utf8Len > nDest) {
         result = SQLITE_ERROR;
         goto cleanup;
       }

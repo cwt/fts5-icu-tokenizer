@@ -135,10 +135,30 @@ static int icuTokenize(
   if (!pText || nText <= 0) return SQLITE_OK;
 
   // Allocate UTF-16 buffer and byte offset map
-  UChar *pUText = (UChar*)sqlite3_malloc((nText + 1) * sizeof(UChar));
+  // For UTF-8 to UTF-16 conversion, in the worst case (surrogate pairs), we might need up to 2x the space
+  // However, most characters will be single UTF-16 code units, so we use a reasonable upper bound
+  // Check for integer overflow in buffer size calculation
+  if (nText > (INT32_MAX - 1) / 2) {
+    return SQLITE_ERROR;  // Prevent integer overflow
+  }
+  int32_t utf16Size = nText * 2 + 1;
+  if (utf16Size > (INT32_MAX - 2) / (int32_t)sizeof(UChar)) {
+    return SQLITE_ERROR;  // Prevent integer overflow in multiplication with sizeof(UChar)
+  }
+  UChar *pUText = (UChar*)sqlite3_malloc(utf16Size * sizeof(UChar));
   if (!pUText) return SQLITE_NOMEM;
 
-  int32_t *pMap = (int32_t*)sqlite3_malloc((nText + 2) * sizeof(int32_t));
+  // Check for integer overflow in pMap size calculation
+  if (nText > (INT32_MAX - 2) / 2) {
+    sqlite3_free(pUText);
+    return SQLITE_ERROR;  // Prevent integer overflow
+  }
+  int32_t mapSize = nText * 2 + 2;
+  if (mapSize > INT32_MAX / (int32_t)sizeof(int32_t)) {
+    sqlite3_free(pUText);
+    return SQLITE_ERROR;  // Prevent integer overflow in multiplication with sizeof(int32_t)
+  }
+  int32_t *pMap = (int32_t*)sqlite3_malloc(mapSize * sizeof(int32_t));
   if (!pMap) {
     sqlite3_free(pUText);
     return SQLITE_NOMEM;
@@ -147,12 +167,9 @@ static int icuTokenize(
   // Convert UTF-8 → UTF-16 and build byte offset map
   int32_t iU16 = 0;
   int32_t iU8 = 0;
-  while (iU8 < nText && iU16 < nText + 1) {
+  while (iU8 < nText && iU16 < utf16Size) {
     UChar32 c;
-    // Bounds check for pMap access
-    if (iU16 >= 0 && iU16 < nText + 2) {
-      pMap[iU16] = iU8;
-    }
+    int32_t originalI8 = iU8;  // Save position BEFORE U8_NEXT
     U8_NEXT(pText, iU8, nText, c);
     // Check for invalid UTF-8 sequence - if we get a replacement character (0xFFFD)
     // and it's not actually a valid character that happens to map to 0xFFFD,
@@ -167,20 +184,29 @@ static int icuTokenize(
         return SQLITE_ERROR;
       }
     }
+    // Store the original byte position BEFORE U16_APPEND modifies iU16
+    int32_t originalU16Pos = iU16; // Save position BEFORE U16_APPEND
     UBool isError = 0;
-    U16_APPEND(pUText, iU16, nText + 1, c, isError);
+    U16_APPEND(pUText, iU16, utf16Size, c, isError);
     if (isError) {
       sqlite3_free(pUText);
       sqlite3_free(pMap);
       return SQLITE_ERROR;
     }
-    // For surrogate pairs, we adjust the byte mapping
-    if (c > 0xFFFF && iU16 >= 2 && (iU16 - 1) < nText + 2) {
-      pMap[iU16 - 1] = pMap[iU16 - 2]; // Properly handle surrogate pair byte mapping
+    // Now assign the byte position mapping using saved original positions
+    if (originalU16Pos >= 0 && originalU16Pos < mapSize) {
+      pMap[originalU16Pos] = originalI8;  // Map to the start of the UTF-8 character
     }
+    // For surrogate pairs, we adjust the byte mapping
+    if (c > 0xFFFF && originalU16Pos + 1 >= 0 && originalU16Pos + 1 < mapSize) {
+      pMap[originalU16Pos + 1] = originalI8; // Second half of surrogate pair maps to same UTF-8 start
+    }
+    
+    // Check bounds again after U16_APPEND has updated iU16
+    if (iU16 >= utf16Size) break;
   }
   // Bounds check before final assignment to pMap
-  if (iU16 >= 0 && iU16 < nText + 2) {
+  if (iU16 >= 0 && iU16 < mapSize) {
     pMap[iU16] = nText;
   }
 
@@ -215,7 +241,7 @@ static int icuTokenize(
     }
 
     // Bounds checking for pMap array access
-    if (iPrev >= 0 && iPrev < nText + 2 && iNext >= 0 && iNext < nText + 2) {
+    if (iPrev >= 0 && iPrev < mapSize && iNext >= 0 && iNext < mapSize) {
       int32_t iStartByte = pMap[iPrev];
       int32_t iEndByte = pMap[iNext];
       int nTokenByte = iEndByte - iStartByte;
@@ -237,8 +263,16 @@ static int icuTokenize(
       }
       requiredBufSize = (nSrc * 6) + 2048;  // Increased multiplier to handle complex transformations
       if (nBuf < requiredBufSize) {
+        // Check for integer overflow in the multiplication with sizeof(UChar)
+        if (requiredBufSize > (INT32_MAX / sizeof(UChar))) {
+          result = SQLITE_ERROR;  // Prevent integer overflow
+          goto cleanup;
+        }
         UChar *newBuf = (UChar*)sqlite3_realloc(buf, requiredBufSize * sizeof(UChar));
         if (!newBuf) {
+          if (buf) {  // If realloc failed and buf was not NULL, we need to free the original buf
+            sqlite3_free(buf);
+          }
           result = SQLITE_NOMEM;
           goto cleanup;
         }
@@ -272,6 +306,9 @@ static int icuTokenize(
       if (nDest < requiredDestSize) {
         char *newDest = (char*)sqlite3_realloc(dest, requiredDestSize);
         if (!newDest) {
+          if (dest) {  // If realloc failed and dest was not NULL, we need to free the original dest
+            sqlite3_free(dest);
+          }
           result = SQLITE_NOMEM;
           goto cleanup;
         }

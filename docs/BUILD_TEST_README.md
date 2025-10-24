@@ -92,3 +92,23 @@ Each built library exports a function with a name matching the SQLite FTS5 exten
 - For universal tokenizer: `sqlite3_ftsicu_init`
 
 This ensures compatibility with SQLite's extension loading mechanism.
+
+## Code Quality Scripts
+
+The project includes scripts for maintaining code quality:
+
+### `code-format.sh`
+Formats all source code files using clang-format. Usage:
+```bash
+./scripts/code-format.sh
+```
+
+### `lint-check.sh`
+Performs static code analysis using cppcheck. Usage:
+```bash
+./scripts/lint-check.sh
+```
+
+For more information about the FTS5 v2 API implementation, see [docs/FTS5_API_IMPLEMENTATION.md](docs/FTS5_API_IMPLEMENTATION.md).
+
+For a complete reference of all available scripts, see [docs/SCRIPTS_REFERENCE.md](docs/SCRIPTS_REFERENCE.md).

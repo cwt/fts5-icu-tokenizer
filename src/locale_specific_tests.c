@@ -8,9 +8,9 @@
 #include <string.h>
 
 // ICU headers
-#include <unicode/utypes.h>
 #include <unicode/ustring.h>
 #include <unicode/utrans.h>
+#include <unicode/utypes.h>
 
 /**
  * @brief Test the ICU transliterator with a given input string and rules
@@ -19,11 +19,12 @@
  * @param rules The transliterator rules to apply
  * @param testName A descriptive name for the test
  */
-void testTransliteratorWithRules(const char* input, const char* rules, const char* testName) {
+static void testTransliteratorWithRules(const char* input, const char* rules,
+                                        const char* testName) {
     UErrorCode status = U_ZERO_ERROR;
 
     // Convert rules from UTF-8 to UTF-16
-    UChar *utf16Rules = NULL;
+    UChar* utf16Rules = NULL;
     int32_t rulesLen = 0;
 
     // First get the required length
@@ -48,17 +49,18 @@ void testTransliteratorWithRules(const char* input, const char* rules, const cha
     }
 
     // Create the transliterator with the specified rules
-    UTransliterator *transliterator = utrans_openU(
-        utf16Rules, -1, UTRANS_FORWARD, NULL, 0, NULL, &status);
+    UTransliterator* transliterator = utrans_openU(utf16Rules, -1, UTRANS_FORWARD, NULL, 0, NULL,
+                                                   &status);
 
     if (U_FAILURE(status)) {
-        fprintf(stderr, "Error creating transliterator with rules '%s': %s\n", rules, u_errorName(status));
+        fprintf(stderr, "Error creating transliterator with rules '%s': %s\n", rules,
+                u_errorName(status));
         free(utf16Rules);
         return;
     }
 
     // Convert input UTF-8 string to UTF-16
-    UChar *utf16Input = NULL;
+    UChar* utf16Input = NULL;
     int32_t inputLen = 0;
 
     // First get the required length
@@ -90,8 +92,8 @@ void testTransliteratorWithRules(const char* input, const char* rules, const cha
 
     // Perform transliteration
     int32_t limit = inputLen;
-    int32_t capacity = inputLen * 3; // Provide extra space for expansion
-    UChar *utf16Output = (UChar*)malloc(sizeof(UChar) * capacity);
+    int32_t capacity = inputLen * 3;  // Provide extra space for expansion
+    UChar* utf16Output = (UChar*)malloc(sizeof(UChar) * capacity);
     if (!utf16Output) {
         fprintf(stderr, "Memory allocation error\n");
         free(utf16Input);
@@ -115,11 +117,11 @@ void testTransliteratorWithRules(const char* input, const char* rules, const cha
     }
 
     // Convert result back to UTF-8 for display
-    char *utf8Output = NULL;
+    char* utf8Output = NULL;
     int32_t outputLen = 0;
 
     // First get the required length
-    status = U_ZERO_ERROR; // Reset status
+    status = U_ZERO_ERROR;  // Reset status
     u_strToUTF8(NULL, 0, &outputLen, utf16Output, limit, &status);
     if (status != U_BUFFER_OVERFLOW_ERROR) {
         fprintf(stderr, "Error getting UTF-8 length: %s\n", u_errorName(status));
@@ -171,7 +173,8 @@ int main() {
     printf("Locale-Specific ICU Transliterator Test Program\n");
     printf("==============================================\n\n");
 
-    // Test locale-specific rules (updated to match current ICU rules in fts5_icu.c)
+    // Test locale-specific rules (updated to match current ICU rules in
+    // fts5_icu.c)
     testTransliteratorWithRules("中文", "NFKD; Traditional-Simplified; Lower", "Chinese (zh)");
     testTransliteratorWithRules("日本語", "NFKD; Katakana-Hiragana; Lower", "Japanese (ja)");
     testTransliteratorWithRules("ภาษาไทย", "NFKD; Lower", "Thai (th)");

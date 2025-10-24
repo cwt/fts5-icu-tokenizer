@@ -58,3 +58,13 @@ CREATE VIRTUAL TABLE documents USING fts5(
 3. **Modern Approach**: Uses current best practices and API
 4. **Performance**: Implementation includes all the performance improvements from the v2 API
 5. **Internationalization**: v2 API provides locale-aware tokenization capabilities
+
+For detailed information about the FTS5 v2 API implementation, see [docs/FTS5_API_IMPLEMENTATION.md](docs/FTS5_API_IMPLEMENTATION.md).
+
+## Code Quality and Maintenance
+
+The project includes scripts to maintain high code quality:
+
+- **Code Formatting**: Use `./scripts/code-format.sh` to maintain consistent style
+- **Code Linting**: Use `./scripts/lint-check.sh` for static analysis
+- **Comprehensive Testing**: Automated test scripts for all supported locales

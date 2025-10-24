@@ -31,6 +31,8 @@ For convenience, this project includes scripts to build and test all supported l
 
 For detailed information about building and testing, see [docs/BUILD_TEST_README.md](docs/BUILD_TEST_README.md).
 
+For a complete reference of all available scripts, see [docs/SCRIPTS_REFERENCE.md](docs/SCRIPTS_REFERENCE.md).
+
 ### Building Individual Locales
 
 You can build individual locales using CMake directly:
@@ -235,6 +237,29 @@ cmake .. -DLOCALE=zh
 cmake .. -DLOCALE=kr
 cmake .. -DLOCALE=ko
 ```
+
+## Codebase Improvements
+
+This project has been enhanced for improved readability and maintainability:
+
+- **Modular Design**: Complex functions have been broken down into focused, well-documented helper functions
+- **Enhanced Documentation**: Comprehensive doxygen-style comments added throughout the codebase
+- **Better Variable Naming**: Descriptive names that clearly indicate purpose and function
+- **Clear Structure**: Consistent formatting and logical organization of code sections
+- **Self-Documenting Code**: Improved clarity through better function decomposition and comments
+
+For detailed implementation documentation, see [docs/FTS5_API_IMPLEMENTATION.md](docs/FTS5_API_IMPLEMENTATION.md).
+
+## Code Formatting and Linting
+
+The project includes configuration and scripts for consistent code formatting and code quality checks:
+
+- **clang-format**: Used for consistent code style (configuration in `.clang-format`)
+- **cppcheck**: Used for static code analysis and linting
+
+To format all source files: `./scripts/code-format.sh`
+
+To run linting checks: `./scripts/lint-check.sh`
 
 ## Testing
 

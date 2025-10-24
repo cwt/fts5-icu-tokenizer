@@ -9,9 +9,9 @@
 #include <string.h>
 
 // ICU headers
-#include <unicode/utypes.h>
 #include <unicode/ustring.h>
 #include <unicode/utrans.h>
+#include <unicode/utypes.h>
 
 /**
  * @brief Test the ICU transliterator with a given input string
@@ -19,14 +19,16 @@
  * @param input The input string to transliterate
  * @param testName A descriptive name for the test
  */
-void testTransliterator(const char* input, const char* testName) {
+static void testTransliterator(const char* input, const char* testName) {
     UErrorCode status = U_ZERO_ERROR;
 
     // Create the transliterator with the same rules as used in fts5_icu.c
     // Updated to match the current ICU_RULE_DEFAULT from fts5_icu.c
-    UTransliterator *transliterator = utrans_openU(
-        u"NFKD; Arabic-Latin; Cyrillic-Latin; Hebrew-Latin; Greek-Latin; Latin-ASCII; Lower; NFKC; Traditional-Simplified; Katakana-Hiragana",
-        -1, UTRANS_FORWARD, NULL, 0, NULL, &status);
+    UTransliterator* transliterator = utrans_openU(
+      u"NFKD; Arabic-Latin; Cyrillic-Latin; Hebrew-Latin; Greek-Latin; "
+      u"Latin-ASCII; Lower; NFKC; "
+      u"Traditional-Simplified; Katakana-Hiragana",
+      -1, UTRANS_FORWARD, NULL, 0, NULL, &status);
 
     if (U_FAILURE(status)) {
         fprintf(stderr, "Error creating transliterator: %s\n", u_errorName(status));
@@ -34,7 +36,7 @@ void testTransliterator(const char* input, const char* testName) {
     }
 
     // Convert input UTF-8 string to UTF-16
-    UChar *utf16Input = NULL;
+    UChar* utf16Input = NULL;
     int32_t inputLen = 0;
 
     // First get the required length
@@ -63,8 +65,8 @@ void testTransliterator(const char* input, const char* testName) {
 
     // Perform transliteration
     int32_t limit = inputLen;
-    int32_t capacity = inputLen * 3; // Provide extra space for expansion
-    UChar *utf16Output = (UChar*)malloc(sizeof(UChar) * capacity);
+    int32_t capacity = inputLen * 3;  // Provide extra space for expansion
+    UChar* utf16Output = (UChar*)malloc(sizeof(UChar) * capacity);
     if (!utf16Output) {
         fprintf(stderr, "Memory allocation error\n");
         free(utf16Input);
@@ -86,11 +88,11 @@ void testTransliterator(const char* input, const char* testName) {
     }
 
     // Convert result back to UTF-8 for display
-    char *utf8Output = NULL;
+    char* utf8Output = NULL;
     int32_t outputLen = 0;
 
     // First get the required length
-    status = U_ZERO_ERROR; // Reset status
+    status = U_ZERO_ERROR;  // Reset status
     u_strToUTF8(NULL, 0, &outputLen, utf16Output, limit, &status);
     if (status != U_BUFFER_OVERFLOW_ERROR) {
         fprintf(stderr, "Error getting UTF-8 length: %s\n", u_errorName(status));

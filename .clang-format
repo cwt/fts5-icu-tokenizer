@@ -1,0 +1,79 @@
+# .clang-format
+# Configuration for clang-format to format C code consistently
+
+# Language to use for formatting
+Language: Cpp
+
+# Basic formatting options
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+ColumnLimit: 100
+
+# Indentation settings
+AccessModifierOffset: -2
+AlignAfterOpenBracket: Align
+AlignArrayOfStructures: Left
+AlignConsecutiveAssignments: false
+AlignConsecutiveDeclarations: false
+AlignOperands: Align
+AlignTrailingComments: true
+
+# Spaces settings
+AllowAllParametersOfDeclarationOnNextLine: true
+AllowShortBlocksOnASingleLine: false
+AllowShortCaseLabelsOnASingleLine: false
+AllowShortFunctionsOnASingleLine: Empty
+AllowShortIfStatementsOnASingleLine: false
+AllowShortLoopsOnASingleLine: false
+
+# Braces and brackets
+BreakBeforeBinaryOperators: None
+BreakBeforeBraces: Attach
+BreakBeforeTernaryOperators: true
+BreakConstructorInitializersBeforeComma: false
+
+# Function formatting
+Cpp11BracedListStyle: true
+SpaceAfterCStyleCast: false
+SpaceAfterLogicalNot: false
+SpaceBeforeAssignmentOperators: true
+SpaceBeforeParens: ControlStatements
+SpaceInEmptyParentheses: false
+
+# Pointer alignment (Left aligns * and & with the type)
+PointerAlignment: Left
+
+# Comments
+ReflowComments: true
+SpacesBeforeTrailingComments: 2
+
+# Continuation indentation
+ContinuationIndentWidth: 2
+
+# Sorting includes
+SortIncludes: true
+
+# Sorting using declarations
+SortUsingDeclarations: true
+
+# Constructor initialization
+ConstructorInitializerIndentWidth: 2
+
+# C++ specific but may apply to C includes
+DerivePointerAlignment: false
+
+# Line breaks
+MaxEmptyLinesToKeep: 1
+KeepEmptyLinesAtTheStartOfBlocks: false
+
+# Namespace indentation
+NamespaceIndentation: None
+
+# Penalty settings for line breaking
+PenaltyBreakBeforeFirstCallParameter: 1
+PenaltyBreakComment: 300
+PenaltyBreakFirstLessLess: 120
+PenaltyBreakString: 1000
+PenaltyBreakAssignment: 2000
+PenaltyReturnTypeOnItsOwnLine: 200

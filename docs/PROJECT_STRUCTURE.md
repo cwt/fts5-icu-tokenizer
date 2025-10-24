@@ -27,6 +27,8 @@ Contains the compiled shared libraries after building:
 ### `docs/`
 Documentation files:
 - `BUILD_TEST_README.md` - Instructions for building and testing all tokenizers
+- `FTS5_API_IMPLEMENTATION.md` - Complete documentation on the FTS5 v2 API implementation
+- `SCRIPTS_REFERENCE.md` - Reference guide for all scripts in the scripts directory
 
 ### `scripts/`
 Utility scripts for building and testing:

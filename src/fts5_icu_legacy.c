@@ -34,7 +34,8 @@ static fts5_api* fts5_api_from_db(sqlite3* db) {
 // Forward declarations for legacy v1 API
 static int icuCreate(void*, const char**, int, Fts5Tokenizer**);
 static void icuDelete(Fts5Tokenizer*);
-static int icuTokenize(Fts5Tokenizer*, void*, int, const char*, int, int (*)(void*, int, const char*, int, int, int));
+static int icuTokenize(Fts5Tokenizer*, void*, int, const char*, int,
+                       int (*)(void*, int, const char*, int, int, int));
 
 // Main tokenizer struct for legacy v1 API
 typedef struct IcuTokenizerV1 {
@@ -191,9 +192,7 @@ static int validate_buffer_size(const char* pText, int nText, int32_t utf16_buff
     // Add buffer for potential surrogate pairs (each code point could need
     // 2 UChar)
     if (actualCodePointCount > utf16_buffer_size / 2) {
-        sqlite3_free(pUText);
-        sqlite3_free(pMap);
-        return SQLITE_ERROR;  // Prevent buffer overflow
+        return SQLITE_ERROR;  // Prevent buffer overflow - caller will free buffers
     }
 
     return SQLITE_OK;
@@ -210,10 +209,12 @@ static int validate_buffer_size(const char* pText, int nText, int32_t utf16_buff
  * @param pUText Pre-allocated UTF-16 buffer
  * @param utf16Size Size of UTF-16 buffer
  * @param pMap Pre-allocated offset mapping array
+ * @param mapBufferSize Size of the offset mapping array
  * @return The number of UTF-16 code units written, or negative on error
  */
 static int32_t convert_utf8_to_utf16_with_mapping(const char* pText, int nText, UChar* pUText,
-                                                  int32_t utf16Size, int32_t* pMap) {
+                                                  int32_t utf16Size, int32_t* pMap,
+                                                  int32_t mapBufferSize) {
     // Convert UTF-8 → UTF-16 and build byte offset map
     int32_t utf16_pos = 0;
     int32_t utf8_pos = 0;
@@ -256,16 +257,15 @@ static int32_t convert_utf8_to_utf16_with_mapping(const char* pText, int nText, 
         }
 
         // Now assign the byte position mapping using saved original
-        // positions
-        if (original_utf16_pos >= 0 &&
-            original_utf16_pos < utf16Size /* assuming map size is similar */) {
+        // positions - use mapBufferSize for bounds checking, not utf16Size
+        if (original_utf16_pos >= 0 && original_utf16_pos < mapBufferSize) {
             pMap[original_utf16_pos] = original_utf8_pos;  // Map to the start of the
                                                            // UTF-8 character
         }
 
         // For surrogate pairs, we adjust the byte mapping
         if (unicode_char > 0xFFFF && original_utf16_pos + 1 >= 0 &&
-            original_utf16_pos + 1 < utf16Size /* assuming map size */) {
+            original_utf16_pos + 1 < mapBufferSize) {
             pMap[original_utf16_pos + 1] = original_utf8_pos;  // Second half of
                                                                // surrogate pair maps to
                                                                // same UTF-8 start
@@ -276,8 +276,8 @@ static int32_t convert_utf8_to_utf16_with_mapping(const char* pText, int nText, 
             break;
     }
 
-    // Bounds check before final assignment to pMap
-    if (utf16_pos >= 0 && utf16_pos < utf16Size /* assuming map size */) {
+    // Bounds check before final assignment to pMap - use mapBufferSize
+    if (utf16_pos >= 0 && utf16_pos < mapBufferSize) {
         pMap[utf16_pos] = nText;
     }
 
@@ -406,23 +406,35 @@ static int process_single_token(IcuTokenizerV1* pTokenizer, UChar* pUText, const
         return SQLITE_ERROR;
     }
     u_strToUTF8WithSub(*dest, *nDest, &utf8Len, *buf, safeCopyLen, 0xFFFD, NULL, &status);
-    if (U_FAILURE(status) || utf8Len < 0) {
-        return SQLITE_ERROR;
-    }
-    // Note: utf8Len can be larger than nDest if the buffer was too small,
-    // but ICU will truncate The actual usable length is min(utf8Len, nDest)
 
-    // Additional validation to ensure utf8Len is reasonable
-    if (utf8Len > *nDest * 4) {  // Maximum UTF-8 expansion is 4 bytes per code point
+    // Handle buffer overflow - ICU sets U_BUFFER_OVERFLOW_ERROR if the buffer
+    // was too small, and utf8Len contains the required size
+    if (status == U_BUFFER_OVERFLOW_ERROR || (U_FAILURE(status) && utf8Len > *nDest)) {
+        // Reallocate with the required size plus safety margin
+        int32_t newDestSize = utf8Len + 64;
+        if (newDestSize <= utf8Len) {
+            return SQLITE_ERROR;  // Integer overflow
+        }
+        char* newDest = (char*)sqlite3_realloc(*dest, newDestSize);
+        if (!newDest) {
+            return SQLITE_NOMEM;
+        }
+        *dest = newDest;
+        *nDest = newDestSize;
+
+        // Retry the conversion with the larger buffer
+        utf8Len = 0;
+        status = U_ZERO_ERROR;
+        u_strToUTF8WithSub(*dest, *nDest, &utf8Len, *buf, safeCopyLen, 0xFFFD, NULL, &status);
+    }
+
+    if (U_FAILURE(status) || utf8Len < 0 || utf8Len > *nDest) {
         return SQLITE_ERROR;
     }
 
     // Ensure we don't pass invalid parameters to xToken
     if (*dest && utf8Len > 0) {
-        // Handle case where utf8Len might exceed buffer but ICU
-        // truncated the output
-        int safeLen = (utf8Len <= *nDest) ? utf8Len : *nDest;
-        if (xToken(pCtx, 0, *dest, safeLen, iStartByte, iEndByte) != SQLITE_OK) {
+        if (xToken(pCtx, 0, *dest, utf8Len, iStartByte, iEndByte) != SQLITE_OK) {
             return SQLITE_ERROR;
         }
     }
@@ -462,13 +474,14 @@ static int icuTokenize(Fts5Tokenizer* pTok, void* pCtx, int flags, const char* p
     result = validate_buffer_size(pText, nText, utf16_buffer_size, utf16_text_buffer,
                                   byte_offset_map);
     if (result != SQLITE_OK) {
-        return result;  // Error already handled in the validation
-                        // function
+        sqlite3_free(utf16_text_buffer);
+        sqlite3_free(byte_offset_map);
+        return result;
     }
 
     // Step 3: Convert UTF-8 to UTF-16 with position mapping
     int32_t utf16_text_length = convert_utf8_to_utf16_with_mapping(
-      pText, nText, utf16_text_buffer, utf16_buffer_size, byte_offset_map);
+      pText, nText, utf16_text_buffer, utf16_buffer_size, byte_offset_map, map_buffer_size);
 
     if (utf16_text_length < 0) {
         // Error occurred in conversion
@@ -543,11 +556,8 @@ static int icuTokenize(Fts5Tokenizer* pTok, void* pCtx, int flags, const char* p
 __declspec(dllexport)
 #endif
 // cppcheck-suppress unusedFunction
-int PASTE(sqlite3_ftsicu, INIT_LOCALE_SUFFIX_FOR_FUNCTION, legacy, _init)(
-  sqlite3 *db,
-  char **pzErrMsg,
-  const sqlite3_api_routines *pApi
-){
+int PASTE(sqlite3_ftsicu, INIT_LOCALE_SUFFIX_FOR_FUNCTION, legacy,
+          _init)(sqlite3* db, char** pzErrMsg, const sqlite3_api_routines* pApi) {
     SQLITE_EXTENSION_INIT2(pApi);
     fts5_api* pFts5Api = fts5_api_from_db(db);
     if (!pFts5Api) {
@@ -559,27 +569,23 @@ int PASTE(sqlite3_ftsicu, INIT_LOCALE_SUFFIX_FOR_FUNCTION, legacy, _init)(
     if (pFts5Api->iVersion < 2) {
         // For v1 API, we use xCreateTokenizer (without _v2 suffix)
         fts5_tokenizer tokenizer = {
-          .xCreate = icuCreate,
-          .xDelete = icuDelete,
-          .xTokenize = icuTokenize
-        };
+          .xCreate = icuCreate, .xDelete = icuDelete, .xTokenize = icuTokenize};
 
         int rc = pFts5Api->xCreateTokenizer(pFts5Api, TOKENIZER_NAME, NULL, &tokenizer, NULL);
         if (rc != SQLITE_OK) {
-            *pzErrMsg = sqlite3_mprintf("Failed to register ICU tokenizer v1: %s", sqlite3_errstr(rc));
+            *pzErrMsg = sqlite3_mprintf("Failed to register ICU tokenizer v1: %s",
+                                        sqlite3_errstr(rc));
         }
         return rc;
     } else {
         // For compatibility with systems that have v2 API, still register for v1
         fts5_tokenizer tokenizer = {
-          .xCreate = icuCreate,
-          .xDelete = icuDelete,
-          .xTokenize = icuTokenize
-        };
+          .xCreate = icuCreate, .xDelete = icuDelete, .xTokenize = icuTokenize};
 
         int rc = pFts5Api->xCreateTokenizer(pFts5Api, TOKENIZER_NAME, NULL, &tokenizer, NULL);
         if (rc != SQLITE_OK) {
-            *pzErrMsg = sqlite3_mprintf("Failed to register ICU tokenizer v1: %s", sqlite3_errstr(rc));
+            *pzErrMsg = sqlite3_mprintf("Failed to register ICU tokenizer v1: %s",
+                                        sqlite3_errstr(rc));
         }
         return rc;
     }

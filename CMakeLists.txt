@@ -13,6 +13,13 @@ endif()
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 
+# --- MSVC UTF-8 Encoding Support ---
+# On Windows with MSVC, set source and execution charset to UTF-8
+# to properly handle Unicode characters in source files
+if(MSVC)
+  add_compile_options(/utf-8)
+endif()
+
 # --- API Version Selection ---
 # Define a variable to select between FTS5 API versions
 # API_VERSION can be "v1" (legacy) or "v2" (default/current)
@@ -201,7 +208,11 @@ add_executable(locale_specific_tests src/locale_specific_tests.c)
 target_link_libraries(locale_specific_tests PRIVATE ICU::i18n ICU::uc)
 
 add_executable(test_locale_tokenizer src/test_locale_tokenizer.c)
-target_link_libraries(test_locale_tokenizer PRIVATE ICU::i18n ICU::uc SQLite::SQLite3)
+if(WIN32 AND DEFINED SQLite3_INCLUDE_DIR AND DEFINED SQLite3_LIBRARY)
+  target_link_libraries(test_locale_tokenizer PRIVATE ICU::i18n ICU::uc SQLite3::SQLite3)
+else()
+  target_link_libraries(test_locale_tokenizer PRIVATE ICU::i18n ICU::uc SQLite::SQLite3)
+endif()
 target_compile_definitions(test_locale_tokenizer PRIVATE SQLITE_ENABLE_FTS5)
 
 # --- Installation ---

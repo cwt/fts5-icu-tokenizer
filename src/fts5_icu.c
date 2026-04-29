@@ -540,9 +540,6 @@ static int icuTokenize(Fts5Tokenizer* pTok, void* pCtx, int flags, const char* p
 // === MODULE INITIALIZATION ==============================================
 // ========================================================================
 
-#define PASTE_IMPL(a, b, c) a##b##c
-#define PASTE(a, b, c) PASTE_IMPL(a, b, c)
-
 #ifdef _WIN32
 __declspec(dllexport)
 #endif

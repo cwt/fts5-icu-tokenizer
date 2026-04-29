@@ -74,7 +74,7 @@ The resulting library will have a `_legacy` suffix (e.g., `libfts5_icu_ja_legacy
 
 ### Loading API v1 (Legacy) Tokenizers
 ```sql
-.load ./build/libfts5_icu_th_legacy.so  -- Note the "_legacy" suffix
+.load ./build/libfts5_icu_th_legacy  -- Extension (.so/.dll) is optional and best omitted for portability
 
 CREATE VIRTUAL TABLE documents_th USING fts5(
     content,
@@ -84,7 +84,7 @@ CREATE VIRTUAL TABLE documents_th USING fts5(
 
 ### Loading API v2 (Current) Tokenizers
 ```sql
-.load ./build/libfts5_icu_th.so
+.load ./build/libfts5_icu_th
 
 CREATE VIRTUAL TABLE documents_th USING fts5(
     content,
@@ -95,7 +95,7 @@ CREATE VIRTUAL TABLE documents_th USING fts5(
 ### Example: Thai Text Search
 ```sql
 -- Load the appropriate library
-.load ./build/libfts5_icu_th.so
+.load ./build/libfts5_icu_th
 
 -- Create table and search
 CREATE VIRTUAL TABLE documents_th USING fts5(content, tokenize = 'icu_th');
@@ -105,7 +105,7 @@ SELECT * FROM documents_th WHERE documents_th MATCH 'ภาษา';
 
 ### Example: Universal Multi-Language Support
 ```sql
-.load ./build/libfts5_icu.so
+.load ./build/libfts5_icu
 
 CREATE VIRTUAL TABLE documents USING fts5(content, tokenize = 'icu');
 INSERT INTO documents(content) VALUES ('甜蜜蜜,你笑得甜蜜蜜-หวานปานน้ำผึ้ง,ยิ้มของคุณช่างหวานปานน้ำผึ้ง');
@@ -192,5 +192,6 @@ Locale-specific tokenizers use optimized ICU rules for each language:
 - **High-Performance Text Search**: Optimized for various languages using ICU
 - **Cross-Platform Compatibility**: Works on Linux, Windows, and macOS
 - **RHEL Support**: Backwards compatibility for older SQLite versions
-- **Memory Safe**: Includes buffer overflow prevention and secure coding practices
+- **Robust UTF-8 handling**: Correctly processes Unicode replacement characters (U+FFFD) and handles invalid sequences safely
+- **Memory Safe**: Includes buffer overflow prevention and defense-in-depth security checks
 - **Modular Design**: Clean, well-documented code structure

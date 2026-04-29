@@ -2,7 +2,7 @@
 cmake_minimum_required(VERSION 3.10)
 
 # Define the project name, version, and language
-project(fts5-icu-tokenizer VERSION 5.0 LANGUAGES C)
+project(fts5-icu-tokenizer VERSION 5.2 LANGUAGES C)
 
 # Set policy to allow using _ROOT variables
 if(POLICY CMP0074)

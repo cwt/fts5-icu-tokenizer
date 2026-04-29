@@ -169,4 +169,14 @@
 #define ICU_TOKENIZER_RULES ICU_RULE_DEFAULT
 #endif
 
+/**
+ * @brief Macro for module initialization function name construction
+ *
+ * This macro creates the appropriate function name based on the locale suffix.
+ * For example, for locale "ja" with legacy suffix, it will create
+ * "sqlite3_ftsicu_ja_legacy_init".
+ */
+#define PASTE_IMPL(a, b, c, d) a##b##c##d
+#define PASTE(a, b, c, d) PASTE_IMPL(a, b, c, d)
+
 #endif  // FTS5_ICU_V1_H

@@ -41,7 +41,6 @@ static int icuTokenize(Fts5Tokenizer*, void*, int, const char*, int, const char*
 
 // Main tokenizer struct for v2 API
 typedef struct IcuTokenizerV2 {
-    fts5_tokenizer_v2 fts_tokenizer_v2;  // Must be first member for v2 API
     UBreakIterator* pBreakIterator;
     UTransliterator* pTransliterator;
 } IcuTokenizerV2;
@@ -81,12 +80,6 @@ static int icuCreate(void* pCtx, const char** azArg, int nArg, Fts5Tokenizer** p
         sqlite3_free(pTokenizer);
         return SQLITE_ERROR;
     }
-
-    // Setup vtable for v2 API
-    pTokenizer->fts_tokenizer_v2.iVersion = 2;
-    pTokenizer->fts_tokenizer_v2.xCreate = icuCreate;
-    pTokenizer->fts_tokenizer_v2.xDelete = icuDelete;
-    pTokenizer->fts_tokenizer_v2.xTokenize = icuTokenize;
 
     *ppOut = (Fts5Tokenizer*)pTokenizer;
     return SQLITE_OK;

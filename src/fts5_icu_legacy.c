@@ -64,7 +64,6 @@ static int icuCreate(void* pCtx, const char** azArg, int nArg, Fts5Tokenizer** p
     if (U_FAILURE(status)) {
         // Avoid fprintf to stderr in SQLite extension; instead, just
         // return error
-        ubrk_close(pTokenizer->pBreakIterator);
         sqlite3_free(pTokenizer);
         return SQLITE_ERROR;
     }

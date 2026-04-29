@@ -175,15 +175,16 @@ int main() {
 
     // Test locale-specific rules (updated to match current ICU rules in
     // fts5_icu.c)
-    testTransliteratorWithRules("中文", "NFKD; Traditional-Simplified; Lower", "Chinese (zh)");
-    testTransliteratorWithRules("日本語", "NFKD; Katakana-Hiragana; Lower", "Japanese (ja)");
-    testTransliteratorWithRules("ภาษาไทย", "NFKD; Lower", "Thai (th)");
-    testTransliteratorWithRules("한국어", "NFKD; Lower", "Korean (ko)");
-    testTransliteratorWithRules("العربية", "NFKD; Arabic-Latin; Lower", "Arabic (ar)");
-    testTransliteratorWithRules("русский", "NFKD; Cyrillic-Latin; Lower", "Russian (ru)");
-    testTransliteratorWithRules("עברית", "NFKD; Hebrew-Latin; Lower", "Hebrew (he)");
-    testTransliteratorWithRules("Ελληνικά", "NFKD; Greek-Latin; Lower", "Greek (el)");
-    testTransliteratorWithRules("Français", "NFKD; Latin-ASCII; Lower", "French (fr)");
+    testTransliteratorWithRules("中文", "NFKD; Traditional-Simplified; Lower; NFKC",
+                                "Chinese (zh)");
+    testTransliteratorWithRules("日本語", "NFKD; Katakana-Hiragana; Lower; NFKC", "Japanese (ja)");
+    testTransliteratorWithRules("ภาษาไทย", "NFKD; Lower; NFKC", "Thai (th)");
+    testTransliteratorWithRules("한국어", "NFKD; Lower; NFKC", "Korean (ko)");
+    testTransliteratorWithRules("العربية", "NFKD; Arabic-Latin; Lower; NFKC", "Arabic (ar)");
+    testTransliteratorWithRules("русский", "NFKD; Cyrillic-Latin; Lower; NFKC", "Russian (ru)");
+    testTransliteratorWithRules("עברית", "NFKD; Hebrew-Latin; Lower; NFKC", "Hebrew (he)");
+    testTransliteratorWithRules("Ελληνικά", "NFKD; Greek-Latin; Lower; NFKC", "Greek (el)");
+    testTransliteratorWithRules("Français", "NFKD; Latin-ASCII; Lower; NFKC", "French (fr)");
 
     printf("All locale-specific tests completed.\n");
     return 0;

@@ -25,9 +25,10 @@ static void testTransliterator(const char* input, const char* testName) {
     // Create the transliterator with the same rules as used in fts5_icu.c
     // Updated to match the current ICU_RULE_DEFAULT from fts5_icu.c
     UTransliterator* transliterator = utrans_openU(
-      u"NFKD; Arabic-Latin; Cyrillic-Latin; Hebrew-Latin; Greek-Latin; "
-      u"Latin-ASCII; Lower; NFKC; "
-      u"Traditional-Simplified; Katakana-Hiragana",
+      u"NFKD; Arabic-Latin; Cyrillic-Latin; Hebrew-Latin; "
+      u"Greek-Latin; Latin-ASCII; "
+      u"Lower; NFKC; Traditional-Simplified; "
+      u"Katakana-Hiragana",
       -1, UTRANS_FORWARD, NULL, 0, NULL, &status);
 
     if (U_FAILURE(status)) {

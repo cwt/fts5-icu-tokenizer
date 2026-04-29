@@ -7,10 +7,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-// SQLite headers
-#include "sqlite3.h"
-#include "sqlite3ext.h"
-
 // ICU headers
 #include <unicode/ustring.h>
 #include <unicode/utrans.h>

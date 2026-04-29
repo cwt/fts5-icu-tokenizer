@@ -175,24 +175,20 @@ static int allocate_conversion_buffers(int nText, UChar** utf16_text_buffer,
  * @param pText Input UTF-8 text
  * @param nText Length of input text
  * @param utf16_buffer_size Size of allocated UTF-16 buffer
- * @param pUText Allocated UTF-16 buffer to validate
- * @param pMap Allocated offset map to validate
  * @return SQLITE_OK if validation passes, error code otherwise
  */
-static int validate_buffer_size(const char* pText, int nText, int32_t utf16_buffer_size,
-                                UChar* pUText, int32_t* pMap) {
+static int validate_buffer_size(const char* pText, int nText, int32_t utf16_buffer_size) {
     // Count the actual number of Unicode code points to validate our buffer
     // size assumption
     int32_t actualCodePointCount = 0;
     int32_t tempU8 = 0;
-    UErrorCode tempStatus = U_ZERO_ERROR;
 
     while (tempU8 < nText) {
         UChar32 tempC;
         int32_t nextPos = tempU8;
         U8_NEXT(pText, nextPos, nText, tempC);
-        if (U_FAILURE(tempStatus) || nextPos <= tempU8)
-            break;  // Invalid UTF-8 sequence
+        if (nextPos <= tempU8)
+            break;  // Invalid UTF-8 sequence or end of string
         actualCodePointCount++;
         tempU8 = nextPos;
     }
@@ -468,8 +464,7 @@ static int icuTokenize(Fts5Tokenizer* pTok, void* pCtx, int flags, const char* p
     }
 
     // Step 2: Validate buffer size against actual code point count
-    result = validate_buffer_size(pText, nText, utf16_buffer_size, utf16_text_buffer,
-                                  byte_offset_map);
+    result = validate_buffer_size(pText, nText, utf16_buffer_size);
     if (result != SQLITE_OK) {
         sqlite3_free(utf16_text_buffer);
         sqlite3_free(byte_offset_map);

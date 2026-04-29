@@ -15,8 +15,14 @@ The project supports both FTS5 API v1 (legacy) and API v2 (current) implementati
 ### Prerequisites
 - **CMake** (version 3.10 or higher)
 - **C Compiler** (GCC, Clang, or MSVC)
-- **SQLite3** development libraries (`libsqlite3-dev` on Debian/Ubuntu, `sqlite-devel` on RHEL/Fedora)
-- **ICU** development libraries (`libicu-dev` on Debian/Ubuntu, `libicu-devel` on RHEL/Fedora)
+- **SQLite3** development libraries
+
+| Platform | Install |
+|----------|---------|
+| Debian/Ubuntu | `apt install cmake libsqlite3-dev libicu-dev` |
+| RHEL/Fedora | `dnf install cmake sqlite-devel libicu-devel` |
+| macOS (Homebrew) | `brew install cmake sqlite icu4c` |
+| Windows | See [Windows Build](#windows-build) below |
 
 ### RHEL Compatibility Note
 For RHEL-based distributions (RHEL, CentOS, Rocky Linux, AlmaLinux, etc.) and other systems with older SQLite versions, use the legacy API v1 as detailed below.
@@ -58,6 +64,14 @@ mkdir build && cd build
 cmake .. -DLOCALE=ja  # e.g., Japanese
 make
 ```
+
+> **macOS**: Homebrew installs `icu4c` and `sqlite` as keg-only (not in standard paths). The build scripts handle this automatically. For manual cmake, add:
+> ```bash
+> ICU_PREFIX=$(brew --prefix icu4c)
+> cmake .. -DLOCALE=ja \
+>   -DICU_ROOT="$ICU_PREFIX" -DICU_INCLUDE_DIR="$ICU_PREFIX/include" \
+>   -DSQLite3_ROOT=$(brew --prefix sqlite)
+> ```
 
 ### API v1 (Legacy - for RHEL & older SQLite)
 ```bash

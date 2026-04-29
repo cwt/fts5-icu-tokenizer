@@ -189,7 +189,7 @@ if(WIN32 AND DEFINED SQLite3_INCLUDE_DIR AND DEFINED SQLite3_LIBRARY)
   )
   target_link_libraries(fts5_icu PRIVATE ICU::i18n ICU::uc SQLite3::SQLite3)
 else()
-  target_link_libraries(fts5_icu PRIVATE ICU::i18n ICU::uc SQLite::SQLite3)
+  target_link_libraries(fts5_icu PRIVATE ICU::i18n ICU::uc SQLite3::SQLite3)
 endif()
 
 # On Windows, we need to define SQLITE_ENABLE_FTS5
@@ -211,7 +211,7 @@ add_executable(test_locale_tokenizer src/test_locale_tokenizer.c)
 if(WIN32 AND DEFINED SQLite3_INCLUDE_DIR AND DEFINED SQLite3_LIBRARY)
   target_link_libraries(test_locale_tokenizer PRIVATE ICU::i18n ICU::uc SQLite3::SQLite3)
 else()
-  target_link_libraries(test_locale_tokenizer PRIVATE ICU::i18n ICU::uc SQLite::SQLite3)
+  target_link_libraries(test_locale_tokenizer PRIVATE ICU::i18n ICU::uc SQLite3::SQLite3)
 endif()
 target_compile_definitions(test_locale_tokenizer PRIVATE SQLITE_ENABLE_FTS5)
 

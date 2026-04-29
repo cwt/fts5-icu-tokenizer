@@ -1,7 +1,7 @@
 -- Test script for zh locale-specific tokenizer
 
 -- Load the locale-specific tokenizer (from the build directory)
-.load ./build/libfts5_icu_zh.so
+.load ./build/libfts5_icu_zh
 
 -- Create a test table using the Chinese tokenizer
 CREATE VIRTUAL TABLE test_zh USING fts5(

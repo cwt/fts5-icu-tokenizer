@@ -1,5 +1,5 @@
 -- Provide the path to the specific library in your build directory.
-.load ./build/libfts5_icu.so
+.load ./build/libfts5_icu
 
 -- Create a virtual table using the correctly named tokenizer
 CREATE VIRTUAL TABLE documents USING fts5(

@@ -1,7 +1,7 @@
 -- Test script for universal tokenizer
 
 -- Load the universal tokenizer (from the build directory)
-.load ./build/libfts5_icu.so
+.load ./build/libfts5_icu
 
 -- Create a test table using the universal tokenizer
 CREATE VIRTUAL TABLE test_universal_v2 USING fts5(

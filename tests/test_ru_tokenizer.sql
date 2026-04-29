@@ -1,7 +1,7 @@
 -- Test script for Russian locale-specific tokenizer
 
 -- Load the locale-specific tokenizer (from the build directory)
-.load ./build/libfts5_icu_ru.so
+.load ./build/libfts5_icu_ru
 
 -- Create a test table using the Russian tokenizer
 CREATE VIRTUAL TABLE test_ru USING fts5(

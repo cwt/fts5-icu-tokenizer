@@ -18,7 +18,7 @@ echo "Testing universal tokenizer (API v1)"
 echo "=================================================="
 if [ -f "./build/libfts5_icu_legacy.so" ]; then
     # Replace the library name in the SQL file to point to the legacy version (tokenizer name remains the same)
-    sed 's/libfts5_icu\.so/libfts5_icu_legacy.so/' ./tests/test_universal_tokenizer.sql | sqlite3
+    sed 's/libfts5_icu/libfts5_icu_legacy/' ./tests/test_universal_tokenizer.sql | sqlite3
     if [ $? -ne 0 ]; then
         echo "ERROR: Test failed for universal tokenizer (API v1)"
     else
@@ -59,7 +59,7 @@ for test_case in "${TEST_CASES[@]}"; do
     if [ -f "./build/libfts5_icu_${locale}_legacy.so" ]; then
         if [ -f "./$test_script" ]; then
             # Replace the library name in the SQL file to point to the legacy version (tokenizer name remains the same)
-            sed "s/libfts5_icu_${locale}\.so/libfts5_icu_${locale}_legacy.so/" ./$test_script | sqlite3
+            sed "s/libfts5_icu_${locale}/libfts5_icu_${locale}_legacy/" ./$test_script | sqlite3
             if [ $? -ne 0 ]; then
                 echo "ERROR: Test failed for $locale tokenizer (API v1)"
             else
@@ -83,4 +83,8 @@ echo "==========================================================================
 echo "Testing TH and ZH on the universal tokenizer with some expected failed cases (API v1)"
 echo "============================================================================"
 
-sed 's/libfts5_icu\.so/libfts5_icu_legacy.so/' ./tests/test_universal_with_th_zh.sql | sqlite3 | sed -e 's/|/ /g'  # format output for readability
+if [ -f "./build/libfts5_icu_legacy.so" ]; then
+    sed 's/libfts5_icu/libfts5_icu_legacy/' ./tests/test_universal_with_th_zh.sql | sqlite3 | sed -e 's/|/ /g'  # format output for readability
+else
+    echo "WARNING: Universal tokenizer library (API v1) not found, skipping TH/ZH test"
+fi

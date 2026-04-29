@@ -91,4 +91,4 @@ for locale in "${LOCALES[@]}"; do
     echo "  - $locale: libfts5_icu_${locale}_legacy.so (legacy API v1 implementation)"
 done
 echo ""
-echo "To run tests, execute: ./scripts/test_all_v1.sh"
+echo "To run tests, execute: ./scripts/test_all_legacy.sh"

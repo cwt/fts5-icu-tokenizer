@@ -36,7 +36,7 @@ for locale in "${LOCALES[@]}"; do
     
     # Configure with CMake
     echo "Configuring with CMake..."
-    cmake .. -DLOCALE="$locale"
+    cmake .. -DAPI_VERSION=v2 -DLOCALE="$locale"
     
     if [ $? -ne 0 ]; then
         echo "ERROR: CMake configuration failed for locale $locale"
@@ -74,7 +74,7 @@ echo "--------------------------------------------------"
 
 # Configure with CMake (no locale specified)
 echo "Configuring with CMake..."
-cmake .. -DLOCALE=""
+cmake .. -DAPI_VERSION=v2 -DLOCALE=""
 
 if [ $? -ne 0 ]; then
     echo "ERROR: CMake configuration failed for universal tokenizer"

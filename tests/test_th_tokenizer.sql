@@ -1,7 +1,7 @@
 -- Test script for Thai locale-specific tokenizer
 
 -- Load the locale-specific tokenizer (from the build directory)
-.load ./build/libfts5_icu_th.so
+.load ./build/libfts5_icu_th
 
 -- Create a test table using the Thai tokenizer
 CREATE VIRTUAL TABLE test_th USING fts5(

@@ -81,6 +81,10 @@ echo "==========================================================================
 echo "Testing TH and ZH on the universal tokenizer with some expected failed cases"
 echo "============================================================================"
 
-sqlite3 < ./tests/test_universal_with_th_zh.sql |sed -e 's/|/ /g'  # format output for readability
+if [ -f "./build/libfts5_icu.so" ]; then
+    sqlite3 < ./tests/test_universal_with_th_zh.sql |sed -e 's/|/ /g'  # format output for readability
+else
+    echo "WARNING: Universal tokenizer library not found, skipping TH/ZH test"
+fi
 
 

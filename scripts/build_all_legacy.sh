@@ -58,7 +58,7 @@ for locale in "${LOCALES[@]}"; do
 
     # Build the project
     echo "Building the project (legacy v1 API)..."
-    rm -f CMakeFiles/fts5_icu.dir/src/fts5_icu.c.o
+    rm -f CMakeFiles/fts5_icu.dir/src/fts5_icu_legacy.c.o
     make
 
     if [ $? -ne 0 ]; then
@@ -89,7 +89,7 @@ if [ $? -ne 0 ]; then
 
 # Build the project
 echo "Building the project (legacy v1 API)..."
-rm -f CMakeFiles/fts5_icu.dir/src/fts5_icu.c.o
+rm -f CMakeFiles/fts5_icu.dir/src/fts5_icu_legacy.c.o
 make
 
 if [ $? -ne 0 ]; then

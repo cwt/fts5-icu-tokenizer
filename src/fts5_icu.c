@@ -502,8 +502,8 @@ static int icuTokenize(Fts5Tokenizer* pTok, void* pCtx, int flags, const char* p
     while ((token_end = ubrk_next(pTokenizer->pBreakIterator)) != UBRK_DONE) {
         // Bounds checking for array access - ensure positions are
         // within our UTF-16 buffer
-        if (token_start < 0 || token_end < 0 || token_start > utf16_buffer_size ||
-            token_end > utf16_buffer_size) {
+        if (token_start < 0 || token_end < 0 || token_start >= utf16_buffer_size ||
+            token_end >= utf16_buffer_size) {
             result = SQLITE_ERROR;
             break;
         }

@@ -401,10 +401,10 @@ static int process_single_token(IcuTokenizerV2* pTokenizer, UChar* pUText, const
     // was too small, and utf8Len contains the required size
     if (status == U_BUFFER_OVERFLOW_ERROR || (U_FAILURE(status) && utf8Len > *nDest)) {
         // Reallocate with the required size plus safety margin
-        int32_t newDestSize = utf8Len + 64;
-        if (newDestSize <= utf8Len) {
+        if (utf8Len > INT32_MAX - 64) {
             return SQLITE_ERROR;  // Integer overflow
         }
+        int32_t newDestSize = utf8Len + 64;
         char* newDest = (char*)sqlite3_realloc(*dest, newDestSize);
         if (!newDest) {
             return SQLITE_NOMEM;
@@ -512,11 +512,10 @@ static int icuTokenize(Fts5Tokenizer* pTok, void* pCtx, int flags, const char* p
         int32_t word_status = ubrk_getRuleStatus(pTokenizer->pBreakIterator);
 
         // Process the current token
-        result = process_single_token(pTokenizer, utf16_text_buffer, byte_offset_map,
-                                      map_buffer_size, token_start, token_end, pCtx, xToken,
-                                      word_status, &transliteration_buffer,
-                                      &transliteration_buffer_size, &transliterated_utf8_buffer,
-                                      &transliterated_utf8_buffer_size);
+        result = process_single_token(
+          pTokenizer, utf16_text_buffer, byte_offset_map, map_buffer_size, token_start, token_end,
+          pCtx, xToken, word_status, &transliteration_buffer, &transliteration_buffer_size,
+          &transliterated_utf8_buffer, &transliterated_utf8_buffer_size);
 
         if (result != SQLITE_OK) {
             break;  // Error in processing this token

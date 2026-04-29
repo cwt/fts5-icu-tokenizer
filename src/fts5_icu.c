@@ -574,7 +574,9 @@ int PASTE(sqlite3_ftsicu, INIT_LOCALE_SUFFIX_FOR_FUNCTION,
 
     int rc = pFts5Api->xCreateTokenizer_v2(pFts5Api, TOKENIZER_NAME, NULL, &tokenizer, NULL);
     if (rc != SQLITE_OK) {
-        *pzErrMsg = sqlite3_mprintf("Failed to register ICU tokenizer: %s", sqlite3_errstr(rc));
+        const char* errMsg = sqlite3_errstr(rc);
+        *pzErrMsg = sqlite3_mprintf("Failed to register ICU tokenizer: %s",
+                                    errMsg ? errMsg : "unknown error");
     }
     return rc;
 }

@@ -290,7 +290,7 @@ static int32_t convert_utf8_to_utf16_with_mapping(const char* pText, int nText, 
  * @return SQLITE_OK on success, appropriate error code on failure
  */
 static int process_single_token(IcuTokenizerV1* pTokenizer, UChar* pUText, const int32_t* pMap,
-                                int32_t iPrev, int32_t iNext, void* pCtx,
+                                int32_t mapBufferSize, int32_t iPrev, int32_t iNext, void* pCtx,
                                 int (*xToken)(void*, int, const char*, int, int, int),
                                 int32_t wordStatus, UChar** buf, int32_t* nBuf, char** dest,
                                 int32_t* nDest) {
@@ -302,7 +302,7 @@ static int process_single_token(IcuTokenizerV1* pTokenizer, UChar* pUText, const
     }
 
     // Bounds checking for pMap array access
-    if (iPrev < 0 || iPrev >= INT32_MAX / 2 || iNext < 0 || iNext >= INT32_MAX / 2) {
+    if (iPrev < 0 || iPrev >= mapBufferSize || iNext < 0 || iNext >= mapBufferSize) {
         return SQLITE_ERROR;
     }
 
@@ -505,8 +505,9 @@ static int icuTokenize(Fts5Tokenizer* pTok, void* pCtx, int flags, const char* p
         int32_t word_status = ubrk_getRuleStatus(pTokenizer->pBreakIterator);
 
         // Process the current token
-        result = process_single_token(pTokenizer, utf16_text_buffer, byte_offset_map, token_start,
-                                      token_end, pCtx, xToken, word_status, &transliteration_buffer,
+        result = process_single_token(pTokenizer, utf16_text_buffer, byte_offset_map,
+                                      map_buffer_size, token_start, token_end, pCtx, xToken,
+                                      word_status, &transliteration_buffer,
                                       &transliteration_buffer_size, &transliterated_utf8_buffer,
                                       &transliterated_utf8_buffer_size);
 

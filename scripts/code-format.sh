@@ -9,5 +9,9 @@ fi
 
 clang-format --verbose -i src/*.c src/*.h
 
-# Remove trailing whitespace in all .c and .h files (perl -i works on both macOS and Linux)
-find src -name "*.[ch]" -exec perl -i -pe 's/[[:space:]]+$//' {} \;
+# Remove trailing whitespace in all .c and .h files
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    find src -name "*.[ch]" -exec sed -i '' -e 's/[[:space:]]*$//' {} \;
+else
+    find src -name "*.[ch]" -exec sed -i -e 's/[[:space:]]*$//' {} \;
+fi

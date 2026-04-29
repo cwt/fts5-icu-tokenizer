@@ -45,7 +45,7 @@ SpaceInEmptyParentheses: false
 PointerAlignment: Left
 
 # Comments
-ReflowComments: true
+ReflowComments: false
 SpacesBeforeTrailingComments: 2
 
 # Continuation indentation

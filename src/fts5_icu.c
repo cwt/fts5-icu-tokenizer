@@ -234,21 +234,6 @@ static int32_t convert_utf8_to_utf16_with_mapping(const char* pText, int nText, 
 
         U8_NEXT(pText, utf8_pos, nText, unicode_char);
 
-        // Check for invalid UTF-8 sequence - if we get a replacement
-        // character (0xFFFD) and it's not actually a valid character
-        // that happens to map to 0xFFFD, and if we haven't reached the
-        // end of the string
-        if (unicode_char == 0xFFFD && utf8_pos > 0 && utf8_pos <= nText) {
-            // Check if this is a genuine error by looking at the
-            // byte that caused it If the byte isn't at the expected
-            // position or is a continuation byte in wrong place
-            unsigned char potential_error_byte = pText[utf8_pos - 1];
-            if (potential_error_byte != 0) {  // If we have a non-null byte that caused
-                                              // 0xFFFD
-                return -1;                    // Error indicator
-            }
-        }
-
         // Bounds check to ensure we have enough space for potentially
         // two UChar values (for surrogate pairs)
         if (utf16_pos + 1 >= utf16Size) {

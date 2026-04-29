@@ -293,8 +293,9 @@ static int32_t convert_utf8_to_utf16_with_mapping(const char* pText, int nText, 
  * @param[in,out] nDest Size of the destination buffer
  * @return SQLITE_OK on success, appropriate error code on failure
  */
-static int process_single_token(IcuTokenizerV2* pTokenizer, UChar* pUText, const int32_t* pMap,
-                                int32_t mapBufferSize, int32_t iPrev, int32_t iNext, void* pCtx,
+static int process_single_token(IcuTokenizerV2* pTokenizer, UChar* pUText, int32_t textBufferSize,
+                                const int32_t* pMap, int32_t mapBufferSize, int32_t iPrev,
+                                int32_t iNext, void* pCtx,
                                 int (*xToken)(void*, int, const char*, int, int, int),
                                 int32_t wordStatus, UChar** buf, int32_t* nBuf, char** dest,
                                 int32_t* nDest) {
@@ -341,6 +342,11 @@ static int process_single_token(IcuTokenizerV2* pTokenizer, UChar* pUText, const
         }
         *buf = newBuf;
         *nBuf = requiredBufSize;
+    }
+
+    // Validate indices against text buffer before accessing pUText
+    if (iPrev < 0 || iPrev >= textBufferSize || iNext < 0 || iNext > textBufferSize) {
+        return SQLITE_ERROR;
     }
 
     // Ensure we don't exceed buffer bounds when copying
@@ -511,10 +517,11 @@ static int icuTokenize(Fts5Tokenizer* pTok, void* pCtx, int flags, const char* p
         int32_t word_status = ubrk_getRuleStatus(pTokenizer->pBreakIterator);
 
         // Process the current token
-        result = process_single_token(
-          pTokenizer, utf16_text_buffer, byte_offset_map, map_buffer_size, token_start, token_end,
-          pCtx, xToken, word_status, &transliteration_buffer, &transliteration_buffer_size,
-          &transliterated_utf8_buffer, &transliterated_utf8_buffer_size);
+        result = process_single_token(pTokenizer, utf16_text_buffer, utf16_buffer_size,
+                                      byte_offset_map, map_buffer_size, token_start, token_end,
+                                      pCtx, xToken, word_status, &transliteration_buffer,
+                                      &transliteration_buffer_size, &transliterated_utf8_buffer,
+                                      &transliterated_utf8_buffer_size);
 
         if (result != SQLITE_OK) {
             break;  // Error in processing this token

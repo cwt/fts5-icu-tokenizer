@@ -204,8 +204,12 @@ static int validate_buffer_size(const char* pText, int nText, int32_t utf16_buff
         UChar32 tempC;
         int32_t nextPos = tempU8;
         U8_NEXT(pText, nextPos, nText, tempC);
-        if (nextPos <= tempU8)
-            break;  // Invalid UTF-8 sequence or end of string
+        if (nextPos <= tempU8) {
+            // Avoid infinite loop if U8_NEXT doesn't progress (e.g. malformed or incomplete sequence)
+            tempU8++;
+            actualCodePointCount++;
+            continue;
+        }
         actualCodePointCount++;
         tempU8 = nextPos;
     }
@@ -246,6 +250,16 @@ static int32_t convert_utf8_to_utf16_with_mapping(const char* pText, int nText, 
         int32_t original_utf8_pos = utf8_pos;  // Save position BEFORE U8_NEXT
 
         U8_NEXT(pText, utf8_pos, nText, unicode_char);
+
+        if (utf8_pos <= original_utf8_pos) {
+            // Prevent infinite loop if U8_NEXT does not progress
+            utf8_pos = original_utf8_pos + 1;
+            unicode_char = 0xFFFD;
+        }
+
+        if (unicode_char < 0) {
+            unicode_char = 0xFFFD;
+        }
 
         // Bounds check to ensure we have enough space for potentially
         // two UChar values (for surrogate pairs)

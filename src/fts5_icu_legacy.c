@@ -49,18 +49,43 @@ typedef struct IcuTokenizerV1 {
 
 static int icuCreate(void* pCtx, const char** azArg, int nArg, Fts5Tokenizer** ppOut) {
     UNUSED_PARAMETER(pCtx);
-    UNUSED_PARAMETER(azArg);
-    UNUSED_PARAMETER(nArg);
 
     IcuTokenizerV1* pTokenizer = (IcuTokenizerV1*)sqlite3_malloc(sizeof(IcuTokenizerV1));
     if (!pTokenizer)
         return SQLITE_NOMEM;
     memset(pTokenizer, 0, sizeof(IcuTokenizerV1));
 
+    const char* locale = TOKENIZER_LOCALE;
+    const UChar* rules = ICU_TOKENIZER_RULES;
+
+    if (nArg > 0 && azArg[0] && azArg[0][0] != '\0') {
+        locale = azArg[0];
+
+        // Map locale prefix to specific rules
+        rules = ICU_RULE_DEFAULT;
+        if (strncmp(locale, "ja", 2) == 0 || strncmp(locale, "jp", 2) == 0) {
+            rules = ICU_RULE_JA;
+        } else if (strncmp(locale, "zh", 2) == 0 || strncmp(locale, "cn", 2) == 0) {
+            rules = ICU_RULE_ZH;
+        } else if (strncmp(locale, "th", 2) == 0) {
+            rules = ICU_RULE_TH;
+        } else if (strncmp(locale, "ko", 2) == 0 || strncmp(locale, "kr", 2) == 0) {
+            rules = ICU_RULE_KO;
+        } else if (strncmp(locale, "ar", 2) == 0) {
+            rules = ICU_RULE_AR;
+        } else if (strncmp(locale, "ru", 2) == 0) {
+            rules = ICU_RULE_RU;
+        } else if (strncmp(locale, "he", 2) == 0 || strncmp(locale, "iw", 2) == 0) {
+            rules = ICU_RULE_HE;
+        } else if (strncmp(locale, "el", 2) == 0 || strncmp(locale, "gr", 2) == 0) {
+            rules = ICU_RULE_EL;
+        }
+    }
+
     UErrorCode status = U_ZERO_ERROR;
 
-    // Open break iterator with compile-time locale
-    pTokenizer->pBreakIterator = ubrk_open(UBRK_WORD, TOKENIZER_LOCALE, NULL, 0, &status);
+    // Open break iterator with resolved locale
+    pTokenizer->pBreakIterator = ubrk_open(UBRK_WORD, locale, NULL, 0, &status);
     if (U_FAILURE(status)) {
         // Avoid fprintf to stderr in SQLite extension; instead, just
         // return error
@@ -68,8 +93,8 @@ static int icuCreate(void* pCtx, const char** azArg, int nArg, Fts5Tokenizer** p
         return SQLITE_ERROR;
     }
 
-    // Use compile-time selected rule
-    pTokenizer->pTransliterator = utrans_openU(ICU_TOKENIZER_RULES, -1, UTRANS_FORWARD, NULL, 0,
+    // Use resolved rules
+    pTokenizer->pTransliterator = utrans_openU(rules, -1, UTRANS_FORWARD, NULL, 0,
                                                NULL, &status);
     if (U_FAILURE(status)) {
         // Avoid fprintf to stderr in SQLite extension; instead, just

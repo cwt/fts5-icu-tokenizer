@@ -29,7 +29,7 @@ echo "Building project with legacy API v1..."
 echo "Testing universal tokenizer (legacy API v1)..."
 if [ -f "./build/libfts5_icu_legacy.${LIB_EXT}" ]; then
     # Replace the library name in the SQL file to point to the legacy version
-    sed 's/libfts5_icu\b/libfts5_icu_legacy/' ./tests/test_universal_tokenizer.sql | $SQLITE3
+    sed 's/libfts5_icu/libfts5_icu_legacy/' ./tests/test_universal_tokenizer.sql | $SQLITE3
     echo "SUCCESS: Universal tokenizer test completed (legacy API v1)"
 else
     echo "WARNING: Universal tokenizer library (legacy API v1) not found"
@@ -39,7 +39,7 @@ fi
 echo "Testing Japanese tokenizer (legacy API v1)..."
 if [ -f "./build/libfts5_icu_ja_legacy.${LIB_EXT}" ]; then
     # Replace the library name in the SQL file to point to the legacy version
-    sed 's/libfts5_icu_ja\b/libfts5_icu_ja_legacy/' ./tests/test_ja_tokenizer.sql | $SQLITE3
+    sed 's/libfts5_icu_ja/libfts5_icu_ja_legacy/' ./tests/test_ja_tokenizer.sql | $SQLITE3
     echo "SUCCESS: Japanese tokenizer test completed (legacy API v1)"
 else
     echo "WARNING: Japanese tokenizer library (legacy API v1) not found"

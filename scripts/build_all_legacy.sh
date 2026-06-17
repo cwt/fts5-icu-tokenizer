@@ -31,7 +31,7 @@ cd build
 
 # Clean any previous build artifacts
 echo "Cleaning previous build artifacts..."
-make clean >/dev/null 2>&1
+cmake --build . --target clean >/dev/null 2>&1
 rm -f libfts5_icu*.so libfts5_icu*.dylib
 
 # List of all supported locales (standard ICU codes)
@@ -58,8 +58,8 @@ for locale in "${LOCALES[@]}"; do
 
     # Build the project
     echo "Building the project (legacy v1 API)..."
-    rm -f CMakeFiles/fts5_icu.dir/src/fts5_icu_legacy.c.o
-    make
+    cmake --build . --target clean >/dev/null 2>&1
+    cmake --build .
 
     if [ $? -ne 0 ]; then
         echo "ERROR: Build failed for locale $locale (legacy v1 API)"
@@ -89,8 +89,8 @@ if [ $? -ne 0 ]; then
 
 # Build the project
 echo "Building the project (legacy v1 API)..."
-rm -f CMakeFiles/fts5_icu.dir/src/fts5_icu_legacy.c.o
-make
+cmake --build . --target clean >/dev/null 2>&1
+cmake --build .
 
 if [ $? -ne 0 ]; then
     echo "ERROR: Build failed for universal tokenizer (legacy v1 API)"

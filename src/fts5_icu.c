@@ -286,7 +286,7 @@ static int32_t convert_utf8_to_utf16_with_mapping(const char* pText, int nText, 
  * @param[in,out] nDest Size of the destination buffer
  * @return SQLITE_OK on success, appropriate error code on failure
  */
-static int process_single_token(IcuTokenizerV2* pTokenizer, UChar* pUText, int32_t textBufferSize,
+static int process_single_token(UTransliterator* pTransliterator, UChar* pUText, int32_t textBufferSize,
                                 const int32_t* pMap, int32_t mapBufferSize, int32_t iPrev,
                                 int32_t iNext, void* pCtx,
                                 int (*xToken)(void*, int, const char*, int, int, int),
@@ -355,7 +355,7 @@ static int process_single_token(IcuTokenizerV2* pTokenizer, UChar* pUText, int32
 
     UErrorCode status = U_ZERO_ERROR;
     int32_t limit = copyLen;
-    utrans_transUChars(pTokenizer->pTransliterator, *buf, &copyLen, *nBuf, 0, &limit, &status);
+    utrans_transUChars(pTransliterator, *buf, &copyLen, *nBuf, 0, &limit, &status);
     if (U_FAILURE(status)) {
         return SQLITE_ERROR;
     }
@@ -439,8 +439,6 @@ static int icuTokenize(Fts5Tokenizer* pTok, void* pCtx, int flags, const char* p
                        int (*xToken)(void* pCtx, int tflags, const char* pToken, int nToken,
                                      int iStart, int iEnd)) {
     UNUSED_PARAMETER(flags);
-    UNUSED_PARAMETER(pLocale);
-    UNUSED_PARAMETER(nLocale);
 
     IcuTokenizerV2* pTokenizer = (IcuTokenizerV2*)pTok;
     UErrorCode status = U_ZERO_ERROR;
@@ -480,9 +478,66 @@ static int icuTokenize(Fts5Tokenizer* pTok, void* pCtx, int flags, const char* p
         return SQLITE_ERROR;
     }
 
-    // Step 4: Set text for break iterator
-    ubrk_setText(pTokenizer->pBreakIterator, utf16_text_buffer, utf16_text_length, &status);
+    // Step 4: Resolve break iterator and transliterator (compile-time vs dynamic locale)
+    UBreakIterator* pBreakIterator = pTokenizer->pBreakIterator;
+    UTransliterator* pTransliterator = pTokenizer->pTransliterator;
+    UBool isDynamic = 0;
+
+    if (pLocale && nLocale > 0) {
+        char locale_buf[32];
+        if (nLocale >= (int)sizeof(locale_buf)) {
+            nLocale = sizeof(locale_buf) - 1;
+        }
+        memcpy(locale_buf, pLocale, nLocale);
+        locale_buf[nLocale] = '\0';
+
+        // Map locale prefix to specific rules
+        const UChar* rules = ICU_RULE_DEFAULT;
+        if (strncmp(locale_buf, "ja", 2) == 0 || strncmp(locale_buf, "jp", 2) == 0) {
+            rules = ICU_RULE_JA;
+        } else if (strncmp(locale_buf, "zh", 2) == 0 || strncmp(locale_buf, "cn", 2) == 0) {
+            rules = ICU_RULE_ZH;
+        } else if (strncmp(locale_buf, "th", 2) == 0) {
+            rules = ICU_RULE_TH;
+        } else if (strncmp(locale_buf, "ko", 2) == 0 || strncmp(locale_buf, "kr", 2) == 0) {
+            rules = ICU_RULE_KO;
+        } else if (strncmp(locale_buf, "ar", 2) == 0) {
+            rules = ICU_RULE_AR;
+        } else if (strncmp(locale_buf, "ru", 2) == 0) {
+            rules = ICU_RULE_RU;
+        } else if (strncmp(locale_buf, "he", 2) == 0 || strncmp(locale_buf, "iw", 2) == 0) {
+            rules = ICU_RULE_HE;
+        } else if (strncmp(locale_buf, "el", 2) == 0 || strncmp(locale_buf, "gr", 2) == 0) {
+            rules = ICU_RULE_EL;
+        }
+
+        UBreakIterator* pDynBreak = ubrk_open(UBRK_WORD, locale_buf, NULL, 0, &status);
+        if (U_FAILURE(status)) {
+            sqlite3_free(utf16_text_buffer);
+            sqlite3_free(byte_offset_map);
+            return SQLITE_ERROR;
+        }
+
+        UTransliterator* pDynTrans = utrans_openU(rules, -1, UTRANS_FORWARD, NULL, 0, NULL, &status);
+        if (U_FAILURE(status)) {
+            ubrk_close(pDynBreak);
+            sqlite3_free(utf16_text_buffer);
+            sqlite3_free(byte_offset_map);
+            return SQLITE_ERROR;
+        }
+
+        pBreakIterator = pDynBreak;
+        pTransliterator = pDynTrans;
+        isDynamic = 1;
+    }
+
+    // Set text for break iterator
+    ubrk_setText(pBreakIterator, utf16_text_buffer, utf16_text_length, &status);
     if (U_FAILURE(status)) {
+        if (isDynamic) {
+            ubrk_close(pBreakIterator);
+            utrans_close(pTransliterator);
+        }
         sqlite3_free(utf16_text_buffer);
         sqlite3_free(byte_offset_map);
         return SQLITE_ERROR;
@@ -495,10 +550,10 @@ static int icuTokenize(Fts5Tokenizer* pTok, void* pCtx, int flags, const char* p
     int32_t transliterated_utf8_buffer_size = 0;
 
     // Step 6: Process tokens identified by the break iterator
-    int32_t token_start = ubrk_first(pTokenizer->pBreakIterator);
+    int32_t token_start = ubrk_first(pBreakIterator);
     int32_t token_end;
 
-    while ((token_end = ubrk_next(pTokenizer->pBreakIterator)) != UBRK_DONE) {
+    while ((token_end = ubrk_next(pBreakIterator)) != UBRK_DONE) {
         // Bounds checking for array access - ensure positions are
         // within our UTF-16 buffer
         if (token_start < 0 || token_end < 0 || token_start >= utf16_buffer_size ||
@@ -507,10 +562,10 @@ static int icuTokenize(Fts5Tokenizer* pTok, void* pCtx, int flags, const char* p
             break;
         }
 
-        int32_t word_status = ubrk_getRuleStatus(pTokenizer->pBreakIterator);
+        int32_t word_status = ubrk_getRuleStatus(pBreakIterator);
 
         // Process the current token
-        result = process_single_token(pTokenizer, utf16_text_buffer, utf16_buffer_size,
+        result = process_single_token(pTransliterator, utf16_text_buffer, utf16_buffer_size,
                                       byte_offset_map, map_buffer_size, token_start, token_end,
                                       pCtx, xToken, word_status, &transliteration_buffer,
                                       &transliteration_buffer_size, &transliterated_utf8_buffer,
@@ -532,6 +587,11 @@ static int icuTokenize(Fts5Tokenizer* pTok, void* pCtx, int flags, const char* p
         sqlite3_free(utf16_text_buffer);
     if (byte_offset_map)
         sqlite3_free(byte_offset_map);
+
+    if (isDynamic) {
+        ubrk_close(pBreakIterator);
+        utrans_close(pTransliterator);
+    }
 
     return result;
 }

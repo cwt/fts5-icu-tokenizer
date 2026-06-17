@@ -259,9 +259,9 @@ static int32_t convert_utf8_to_utf16_with_mapping(const char* pText, int nText, 
             unicode_char = 0xFFFD;
         }
 
-        // Bounds check to ensure we have enough space for potentially
-        // two UChar values (for surrogate pairs)
-        if (utf16_pos + 1 >= utf16Size) {
+        // Bounds check to ensure we have enough space for either 1 or 2 UChar values
+        int32_t needed = (unicode_char > 0xFFFF) ? 2 : 1;
+        if (utf16_pos + needed > utf16Size) {
             return -1;  // Error indicator - prevent buffer overflow
         }
 

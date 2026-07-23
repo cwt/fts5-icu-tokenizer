@@ -104,10 +104,10 @@
 // ========================================================================
 // === AUTO-CONFIGURATION FROM TOKENIZER_LOCALE =========================
 // ========================================================================
-// If user sets -DTOKENIZER_LOCALE="xx", we auto-derive the rest.
+// TOKENIZER_NAME and INIT_LOCALE_SUFFIX are defined by the build system.
+// We only provide fallback defaults here guarded by #ifndef.
+// ICU_TOKENIZER_RULES is set unconditionally here based on locale.
 
-#undef TOKENIZER_NAME
-#undef INIT_LOCALE_SUFFIX
 #undef ICU_TOKENIZER_RULES
 
 // Since we can't use strcmp in preprocessor directives, we use separate defines
@@ -123,49 +123,85 @@
 #endif
 
 #if defined(TOKENIZER_LOCALE_JA)
+#ifndef INIT_LOCALE_SUFFIX
 #define INIT_LOCALE_SUFFIX _ja
+#endif
+#ifndef TOKENIZER_NAME
 #define TOKENIZER_NAME "icu_ja"
+#endif
 #define ICU_TOKENIZER_RULES ICU_RULE_JA
 
 #elif defined(TOKENIZER_LOCALE_ZH)
+#ifndef INIT_LOCALE_SUFFIX
 #define INIT_LOCALE_SUFFIX _zh
+#endif
+#ifndef TOKENIZER_NAME
 #define TOKENIZER_NAME "icu_zh"
+#endif
 #define ICU_TOKENIZER_RULES ICU_RULE_ZH
 
 #elif defined(TOKENIZER_LOCALE_TH)
+#ifndef INIT_LOCALE_SUFFIX
 #define INIT_LOCALE_SUFFIX _th
+#endif
+#ifndef TOKENIZER_NAME
 #define TOKENIZER_NAME "icu_th"
+#endif
 #define ICU_TOKENIZER_RULES ICU_RULE_TH
 
 #elif defined(TOKENIZER_LOCALE_KO)
+#ifndef INIT_LOCALE_SUFFIX
 #define INIT_LOCALE_SUFFIX _ko
+#endif
+#ifndef TOKENIZER_NAME
 #define TOKENIZER_NAME "icu_ko"
+#endif
 #define ICU_TOKENIZER_RULES ICU_RULE_KO
 
 #elif defined(TOKENIZER_LOCALE_AR)
+#ifndef INIT_LOCALE_SUFFIX
 #define INIT_LOCALE_SUFFIX _ar
+#endif
+#ifndef TOKENIZER_NAME
 #define TOKENIZER_NAME "icu_ar"
+#endif
 #define ICU_TOKENIZER_RULES ICU_RULE_AR
 
 #elif defined(TOKENIZER_LOCALE_RU)
+#ifndef INIT_LOCALE_SUFFIX
 #define INIT_LOCALE_SUFFIX _ru
+#endif
+#ifndef TOKENIZER_NAME
 #define TOKENIZER_NAME "icu_ru"
+#endif
 #define ICU_TOKENIZER_RULES ICU_RULE_RU
 
 #elif defined(TOKENIZER_LOCALE_HE)
+#ifndef INIT_LOCALE_SUFFIX
 #define INIT_LOCALE_SUFFIX _he
+#endif
+#ifndef TOKENIZER_NAME
 #define TOKENIZER_NAME "icu_he"
+#endif
 #define ICU_TOKENIZER_RULES ICU_RULE_HE
 
 #elif defined(TOKENIZER_LOCALE_EL)
+#ifndef INIT_LOCALE_SUFFIX
 #define INIT_LOCALE_SUFFIX _el
+#endif
+#ifndef TOKENIZER_NAME
 #define TOKENIZER_NAME "icu_el"
+#endif
 #define ICU_TOKENIZER_RULES ICU_RULE_EL
 
 #else
 // Default/fallback: generic tokenizer
+#ifndef INIT_LOCALE_SUFFIX
 #define INIT_LOCALE_SUFFIX
+#endif
+#ifndef TOKENIZER_NAME
 #define TOKENIZER_NAME "icu"
+#endif
 #define ICU_TOKENIZER_RULES ICU_RULE_DEFAULT
 #endif
 
@@ -185,7 +221,7 @@ typedef struct IcuTokenizer {
  * @brief Macro for module initialization function name construction
  *
  * This macro creates the appropriate function name based on the locale suffix.
- * For example, for locale "ja", it will create "sqlite3_ftsicu_ja_init".
+ * For example, for locale "ja", it will create "sqlite3_ftsicuja_init".
  */
 #define PASTE_IMPL(a, b, c) a##b##c
 #define PASTE(a, b, c) PASTE_IMPL(a, b, c)

@@ -33,15 +33,6 @@ set_property(CACHE API_VERSION PROPERTY STRINGS "v1" "v2")
 # Defaults to "" for a generic, universal word breaker.
 set(LOCALE "" CACHE STRING "The locale for the ICU tokenizer (e.g., th, cn, ja)")
 
-# Handle special case for Chinese and Japanese locales
-if(LOCALE STREQUAL "cn")
-  message(WARNING "Chinese locale 'cn' is being mapped to 'zh' for ICU compatibility")
-  set(LOCALE "zh")
-elseif(LOCALE STREQUAL "jp")
-  message(WARNING "Japanese locale 'jp' is being mapped to 'ja' for ICU compatibility")
-  set(LOCALE "ja")
-endif()
-
 # Construct the library suffix and tokenizer name based on the LOCALE variable.
 if(LOCALE)
   set(LIB_SUFFIX "_${LOCALE}")
@@ -59,10 +50,8 @@ endif()
 
 # Adjust the library name based on API version
 if(API_VERSION STREQUAL "v1")
-  set(API_SUFFIX "_legacy")
-  set(FULL_LIB_SUFFIX "${LIB_SUFFIX}${API_SUFFIX}")
+  set(FULL_LIB_SUFFIX "${LIB_SUFFIX}_legacy")
 else()
-  set(API_SUFFIX "")
   set(FULL_LIB_SUFFIX "${LIB_SUFFIX}")
 endif()
 
@@ -70,37 +59,6 @@ message(STATUS "Building tokenizer for locale: '${LOCALE}'")
 message(STATUS "FTS5 API Version: '${API_VERSION}'")
 message(STATUS "Library name will be: fts5_icu${FULL_LIB_SUFFIX}")
 message(STATUS "Registered FTS5 tokenizer name will be: '${TOKENIZER_NAME}'")
-
-# Store locale-specific definitions to be applied after target creation
-if(LOCALE STREQUAL "ja" OR LOCALE STREQUAL "jp")
-  set(LOCALE_DEFINITIONS TOKENIZER_LOCALE_JA)
-  set(FUNCTION_SUFFIX _ja)
-elseif(LOCALE STREQUAL "zh")
-  set(LOCALE_DEFINITIONS TOKENIZER_LOCALE_ZH)
-  set(FUNCTION_SUFFIX _zh)
-elseif(LOCALE STREQUAL "cn")
-  # For 'cn', we still want the Chinese rules but with 'cn' function name
-  set(LOCALE_DEFINITIONS TOKENIZER_LOCALE_ZH)
-  set(FUNCTION_SUFFIX _cn)
-elseif(LOCALE STREQUAL "th")
-  set(LOCALE_DEFINITIONS TOKENIZER_LOCALE_TH)
-  set(FUNCTION_SUFFIX _th)
-elseif(LOCALE STREQUAL "ko" OR LOCALE STREQUAL "kr")
-  set(LOCALE_DEFINITIONS TOKENIZER_LOCALE_KO)
-  set(FUNCTION_SUFFIX _ko)
-elseif(LOCALE STREQUAL "ar")
-  set(LOCALE_DEFINITIONS TOKENIZER_LOCALE_AR)
-  set(FUNCTION_SUFFIX _ar)
-elseif(LOCALE STREQUAL "ru")
-  set(LOCALE_DEFINITIONS TOKENIZER_LOCALE_RU)
-  set(FUNCTION_SUFFIX _ru)
-elseif(LOCALE STREQUAL "he" OR LOCALE STREQUAL "iw")
-  set(LOCALE_DEFINITIONS TOKENIZER_LOCALE_HE)
-  set(FUNCTION_SUFFIX _he)
-elseif(LOCALE STREQUAL "el" OR LOCALE STREQUAL "gr")
-  set(LOCALE_DEFINITIONS TOKENIZER_LOCALE_EL)
-  set(FUNCTION_SUFFIX _el)
-endif()
 
 # --- Find Dependencies ---
 
@@ -136,10 +94,8 @@ endif()
 # Select source files based on API version
 if(API_VERSION STREQUAL "v1")
   set(SRC_FILE "src/fts5_icu_legacy.c")
-  set(HEADER_FILE "src/fts5_icu_legacy.h")
 else()
   set(SRC_FILE "src/fts5_icu.c")
-  set(HEADER_FILE "src/fts5_icu.h")
 endif()
 
 # Create the shared library from the appropriate source file.
@@ -156,25 +112,41 @@ target_compile_definitions(fts5_icu PRIVATE
   "TOKENIZER_NAME=\"${TOKENIZER_NAME}\""
   "INIT_LOCALE_SUFFIX=${C_INIT_SUFFIX}"
   "C_INIT_SUFFIX_NO_UNDERSCORE=${C_INIT_SUFFIX_NO_UNDERSCORE}"
-  "API_VERSION_${API_VERSION}"  # Define macro indicating which API version we're building
 )
 
-# Define locale-specific macros for compile-time selection
+# Define locale-specific macros for compile-time selection.
+# Locale aliases (jp, cn, kr, iw, gr) select the same ICU rules as the
+# canonical form but preserve their own library/tokenizer naming.
 if(LOCALE STREQUAL "ja" OR LOCALE STREQUAL "jp")
+  if(LOCALE STREQUAL "jp")
+    message(WARNING "Japanese locale 'jp' uses ICU rules for 'ja'")
+  endif()
   target_compile_definitions(fts5_icu PRIVATE TOKENIZER_LOCALE_JA)
 elseif(LOCALE STREQUAL "zh" OR LOCALE STREQUAL "cn")
+  if(LOCALE STREQUAL "cn")
+    message(WARNING "Chinese locale 'cn' uses ICU rules for 'zh'")
+  endif()
   target_compile_definitions(fts5_icu PRIVATE TOKENIZER_LOCALE_ZH)
 elseif(LOCALE STREQUAL "th")
   target_compile_definitions(fts5_icu PRIVATE TOKENIZER_LOCALE_TH)
 elseif(LOCALE STREQUAL "ko" OR LOCALE STREQUAL "kr")
+  if(LOCALE STREQUAL "kr")
+    message(WARNING "Korean locale 'kr' uses ICU rules for 'ko'")
+  endif()
   target_compile_definitions(fts5_icu PRIVATE TOKENIZER_LOCALE_KO)
 elseif(LOCALE STREQUAL "ar")
   target_compile_definitions(fts5_icu PRIVATE TOKENIZER_LOCALE_AR)
 elseif(LOCALE STREQUAL "ru")
   target_compile_definitions(fts5_icu PRIVATE TOKENIZER_LOCALE_RU)
 elseif(LOCALE STREQUAL "he" OR LOCALE STREQUAL "iw")
+  if(LOCALE STREQUAL "iw")
+    message(WARNING "Hebrew locale 'iw' uses ICU rules for 'he'")
+  endif()
   target_compile_definitions(fts5_icu PRIVATE TOKENIZER_LOCALE_HE)
 elseif(LOCALE STREQUAL "el" OR LOCALE STREQUAL "gr")
+  if(LOCALE STREQUAL "gr")
+    message(WARNING "Greek locale 'gr' uses ICU rules for 'el'")
+  endif()
   target_compile_definitions(fts5_icu PRIVATE TOKENIZER_LOCALE_EL)
 endif()
 

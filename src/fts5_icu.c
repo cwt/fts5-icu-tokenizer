@@ -353,6 +353,11 @@ static int process_single_token(UTransliterator* pTransliterator, UChar* pUText,
     // Process the token
     int32_t nSrc = iNext - iPrev;
 
+    // Reject empty or negative-length tokens before any buffer access
+    if (nSrc <= 0) {
+        return SQLITE_OK;  // Skip empty tokens
+    }
+
     // Grow buffer if needed for transliteration
     // Use a more conservative estimate for buffer size to handle complex
     // ICU transformations Check for integer overflow before multiplication
@@ -387,8 +392,7 @@ static int process_single_token(UTransliterator* pTransliterator, UChar* pUText,
     (*buf)[copyLen] = 0;  // Null terminate for safety
 
     // Validate the source buffer before transliteration
-    int32_t srcLength = iNext - iPrev;
-    if (srcLength <= 0 || srcLength >= *nBuf) {
+    if (nSrc >= *nBuf) {
         return SQLITE_ERROR;
     }
 

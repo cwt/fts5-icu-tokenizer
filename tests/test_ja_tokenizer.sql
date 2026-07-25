@@ -1,7 +1,7 @@
 -- Test script for ja locale-specific tokenizer
 
--- Load the locale-specific tokenizer (from the build directory)
-.load ./build/libfts5_icu_ja
+-- Load the Japanese tokenizer (from zig-out directory)
+.load ./zig-out/lib/libfts5_icu_ja
 
 -- Create a test table using the Japanese tokenizer
 CREATE VIRTUAL TABLE test_ja_v2 USING fts5(

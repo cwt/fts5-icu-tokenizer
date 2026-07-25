@@ -1,7 +1,7 @@
 -- Test script for Hebrew locale-specific tokenizer
 
--- Load the locale-specific tokenizer (from the build directory)
-.load ./build/libfts5_icu_he
+-- Load the locale-specific tokenizer (from zig-out directory)
+.load ./zig-out/lib/libfts5_icu_he
 
 -- Create a test table using the Hebrew tokenizer
 CREATE VIRTUAL TABLE test_he USING fts5(

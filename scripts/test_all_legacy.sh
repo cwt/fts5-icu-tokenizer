@@ -21,16 +21,16 @@ case "$(uname -s)" in
     *)      LIB_EXT=so ;;
 esac
 
-# Extract expected version from CMakeLists.txt
-EXPECTED_VERSION=$(grep -E 'project\(fts5-icu-tokenizer VERSION' CMakeLists.txt | sed -E 's/.*VERSION ([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
+# Extract expected version from build.zig.zon
+EXPECTED_VERSION=$(grep -E '\.version = "' build.zig.zon | sed -E 's/.*"([^"]+)".*/\1/')
 
 # Test extension version function
 echo ""
 echo "=================================================="
 echo "Testing extension version (API v1)"
 echo "=================================================="
-if [ -f "./build/libfts5_icu_legacy.${LIB_EXT}" ]; then
-    DETECTED_VERSION=$(${SQLITE3} :memory: ".load ./build/libfts5_icu_legacy" "SELECT fts5_icu_version();" 2>/dev/null)
+if [ -f "./zig-out/lib/libfts5_icu_legacy.${LIB_EXT}" ]; then
+    DETECTED_VERSION=$(${SQLITE3} :memory: ".load ./zig-out/lib/libfts5_icu_legacy" "SELECT fts5_icu_version();" 2>/dev/null)
     echo "Extension version (API v1): ${DETECTED_VERSION} (Expected: ${EXPECTED_VERSION})"
     if [ "${DETECTED_VERSION}" = "${EXPECTED_VERSION}" ]; then
         echo "SUCCESS: Version function test completed (API v1)"
@@ -47,9 +47,9 @@ echo ""
 echo "=================================================="
 echo "Testing universal tokenizer (API v1)"
 echo "=================================================="
-if [ -f "./build/libfts5_icu_legacy.${LIB_EXT}" ]; then
-    # Replace the library name in the SQL file to point to the legacy version (tokenizer name remains the same)
-    sed 's/libfts5_icu/libfts5_icu_legacy/' ./tests/test_universal_tokenizer.sql | $SQLITE3
+if [ -f "./zig-out/lib/libfts5_icu_legacy.${LIB_EXT}" ]; then
+    # Replace the library name in the SQL file to point to the legacy version in zig-out
+    sed -E 's|\./zig-out/lib/libfts5_icu|\./zig-out/lib/libfts5_icu_legacy|g' ./tests/test_universal_tokenizer.sql | $SQLITE3
     if [ $? -ne 0 ]; then
         echo "ERROR: Test failed for universal tokenizer (API v1)"
     else
@@ -87,10 +87,10 @@ for test_case in "${TEST_CASES[@]}"; do
     echo "Testing $locale tokenizer (API v1)"
     echo "--------------------------------------------------"
 
-    if [ -f "./build/libfts5_icu_${locale}_legacy.${LIB_EXT}" ]; then
+    if [ -f "./zig-out/lib/libfts5_icu_${locale}_legacy.${LIB_EXT}" ]; then
         if [ -f "./$test_script" ]; then
-            # Replace the library name in the SQL file to point to the legacy version (tokenizer name remains the same)
-            sed "s/libfts5_icu_${locale}/libfts5_icu_${locale}_legacy/" ./$test_script | $SQLITE3
+            # Replace the library name in the SQL file to point to the legacy version in zig-out
+            sed -E "s|\./zig-out/lib/libfts5_icu_${locale}|\./zig-out/lib/libfts5_icu_${locale}_legacy|g" "./$test_script" | $SQLITE3
             if [ $? -ne 0 ]; then
                 echo "ERROR: Test failed for $locale tokenizer (API v1)"
             else
@@ -114,8 +114,8 @@ echo "==========================================================================
 echo "Testing TH and ZH on the universal tokenizer with some expected failed cases (API v1)"
 echo "============================================================================"
 
-if [ -f "./build/libfts5_icu_legacy.${LIB_EXT}" ]; then
-    sed 's/libfts5_icu/libfts5_icu_legacy/' ./tests/test_universal_with_th_zh.sql | $SQLITE3 | sed -e 's/|/ /g'  # format output for readability
+if [ -f "./zig-out/lib/libfts5_icu_legacy.${LIB_EXT}" ]; then
+    sed -E 's|\./zig-out/lib/libfts5_icu|\./zig-out/lib/libfts5_icu_legacy|g' ./tests/test_universal_with_th_zh.sql | $SQLITE3 | sed -e 's/|/ /g'  # format output for readability
 else
     echo "WARNING: Universal tokenizer library (API v1) not found, skipping TH/ZH test"
 fi

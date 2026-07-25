@@ -1,7 +1,7 @@
 -- Test script for table creation-time custom locale arguments
 
 -- Load the universal tokenizer
-.load ./build/libfts5_icu
+.load ./zig-out/lib/libfts5_icu
 
 -- Create an FTS5 table with locale set to 'th' at table creation time
 CREATE VIRTUAL TABLE documents_th USING fts5(

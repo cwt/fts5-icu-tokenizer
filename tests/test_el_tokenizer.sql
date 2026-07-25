@@ -1,7 +1,7 @@
 -- Test script for Greek locale-specific tokenizer
 
--- Load the locale-specific tokenizer (from the build directory)
-.load ./build/libfts5_icu_el
+-- Load the locale-specific tokenizer (from zig-out directory)
+.load ./zig-out/lib/libfts5_icu_el
 
 -- Create a test table using the Greek tokenizer
 CREATE VIRTUAL TABLE test_el USING fts5(

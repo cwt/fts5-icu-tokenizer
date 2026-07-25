@@ -1,7 +1,7 @@
 -- Test script for Korean locale-specific tokenizer
 
--- Load the locale-specific tokenizer (from the build directory)
-.load ./build/libfts5_icu_ko
+-- Load the locale-specific tokenizer (from zig-out directory)
+.load ./zig-out/lib/libfts5_icu_ko
 
 -- Create a test table using the Korean tokenizer
 CREATE VIRTUAL TABLE test_ko USING fts5(

@@ -1,211 +1,166 @@
-# FTS5 ICU Tokenizer for SQLite
+# FTS5 ICU Tokenizer for SQLite (Zig 0.16.0 Edition)
 
-This project provides custom FTS5 tokenizers for SQLite that use the International Components for Unicode (ICU) library to provide robust word segmentation for various languages.
+Version **0.6.0**
 
-The project supports both FTS5 API v1 (legacy) and API v2 (current) implementations, with the ability to build either version based on your needs. The target locale is configurable at build time, with support for both universal and locale-specific tokenizers.
+This project provides custom FTS5 tokenizers for SQLite implemented in **Zig 0.16.0** using the International Components for Unicode (ICU) library to provide robust word segmentation and text normalization across multiple languages.
 
-- **API v2**: Current implementation with full FTS5 capabilities and enhanced features (default)
-- **API v1**: Legacy implementation for older SQLite versions without FTS5 API v2 support
-- **Both**: Written in C for maximum stability and performance in high-availability systems
+---
+
+## Why Migrate to Zig 0.16.0?
+
+This project was originally written in C with CMake. The rewrite to **Zig 0.16.0** resolves several fundamental issues inherent to C extension development:
+
+### 1. Guaranteed Memory Safety & Zero Leaks
+- **Old C Problem**: Error handling across temporary text buffers and ICU handles required fragile `goto cleanup;` branches. Missing a `free()` or `ubrk_close()` call on an error path caused memory leaks during high-throughput SQLite FTS indexing sessions.
+- **Zig Solution**: First-class `defer` and `errdefer` semantics guarantee that every heap allocation (`allocator.alloc`, `allocator.create`) and ICU handle (`ubrk_close`, `utrans_close`) is deterministically cleaned up, even when errors occur mid-tokenization.
+
+### 2. Elimination of Build System & Toolchain Fragility
+- **Old C Problem**: Building cross-platform C extensions required complex CMake files, platform-specific Homebrew path workarounds (`brew --prefix icu4c`), Windows MSVC compiler flags (`/utf-8`), and external generators (`make`, `ninja`, Visual Studio).
+- **Zig Solution**: `zig build` replaces CMake and custom shell build scripts entirely. Zig operates as a unified compiler and build driver (`zig cc` / `b.addTranslateC`), handling C header translation, compilation, and cross-compilation out of the box with zero external build tool dependencies.
+
+### 3. Safe UTF-8 / UTF-16 Conversion & Bounds Checking
+- **Old C Problem**: Manual UTF-8 to UTF-16 buffer sizing in C risked integer overflow (`nText > INT32_MAX / 2`) and undefined behavior when encountering invalid Unicode byte sequences.
+- **Zig Solution**: Native standard library `std.unicode` provides safe UTF-8 decoding and codepoint iteration. Slice indexing in Zig is bounds-checked at runtime by default, preventing out-of-bounds buffer overflows.
+
+### 4. Unified Codebase for FTS5 API v1 and v2
+- **Old C Problem**: Supporting legacy FTS5 API v1 (for older RHEL / SQLite installations) alongside API v2 required maintaining duplicated C files (`fts5_icu.c` vs `fts5_icu_legacy.c`) and fragile macro token-pasting (`PASTE_IMPL`).
+- **Zig Solution**: A single, clean Zig codebase ([src/fts5_icu.zig](file:///Users/cwt/Projects/fts5-icu-tokenizer/src/fts5_icu.zig)) exports both v2 and legacy v1 extension entrypoints natively, controlled cleanly via `build.zig` build options.
+
+---
+
+## Key Features
+
+- **Built with Zig 0.16.0**: High-performance, memory-safe, zero-allocation runtime overhead.
+- **FTS5 API v1 & v2 Support**: Full support for both current API v2 and legacy API v1 extension entrypoints.
+- **ICU Word Segmentation & Transliteration**:
+  - Word boundary iteration (`ubrk`)
+  - Full script transliteration and text normalization (`utrans`)
+- **Universal & Locale-Specific Tokenizers**:
+  - `icu` (Universal multi-language rule set)
+  - `icu_ja`, `icu_zh`, `icu_th`, `icu_ko`, `icu_ar`, `icu_ru`, `icu_he`, `icu_el` (Optimized locale rule sets)
+- **Robust UTF-8 & Memory Handling**: Safe character index mapping and buffer handling.
 
 ---
 
 ## Quick Start
 
 ### Prerequisites
-- **CMake** (version 3.10 or higher)
-- **C Compiler** (GCC, Clang, or MSVC)
+- **Zig** (version `0.16.0` or higher)
 - **SQLite3** development libraries
+- **ICU** development libraries (`libicu-uc`, `libicu-i18n`)
 
-| Platform | Install |
-|----------|---------|
-| Debian/Ubuntu | `apt install cmake libsqlite3-dev libicu-dev` |
-| RHEL/Fedora | `dnf install cmake sqlite-devel libicu-devel` |
-| macOS (Homebrew) | `brew install cmake sqlite icu4c` |
-| Windows | See [Windows Build](#windows-build) below |
-
-### RHEL Compatibility Note
-For RHEL-based distributions (RHEL, CentOS, Rocky Linux, AlmaLinux, etc.) and other systems with older SQLite versions, use the legacy API v1 as detailed below.
+| Platform | Dependencies |
+|----------|--------------|
+| macOS | `brew install zig sqlite icu4c` |
+| Debian / Ubuntu | `apt install libsqlite3-dev libicu-dev` + Zig 0.16.0 |
+| RHEL / Fedora | `dnf install sqlite-devel libicu-devel` + Zig 0.16.0 |
 
 ---
 
-## Building & Testing (API v2 - Default)
+## Building & Testing
 
+### 1. Build All Tokenizer Libraries
 ```bash
-# Build all tokenizers (API v2 by default)
-./scripts/build_all.sh
+zig build
+```
+This produces shared dynamic libraries in `zig-out/lib/`:
+- `libfts5_icu.dylib` (or `.so` / `.dll`) — Universal multi-language tokenizer (v2 & legacy v1 entrypoints)
+- `libfts5_icu_ja.dylib` — Japanese (`icu_ja`)
+- `libfts5_icu_zh.dylib` — Chinese (`icu_zh`)
+- `libfts5_icu_th.dylib` — Thai (`icu_th`)
+- `libfts5_icu_ko.dylib` — Korean (`icu_ko`)
+- `libfts5_icu_ar.dylib` — Arabic (`icu_ar`)
+- `libfts5_icu_ru.dylib` — Russian (`icu_ru`)
+- `libfts5_icu_he.dylib` — Hebrew (`icu_he`)
+- `libfts5_icu_el.dylib` — Greek (`icu_el`)
 
-# Test all tokenizers
+### 2. Run Tests
+```bash
+# Run unit tests
+zig build test
+
+# Run ICU transliterator tests
+zig build run-transliterator
+
+# Run locale-specific transliterator tests
+zig build run-locale-tests
+
+# Run locale tokenizer test
+zig build run-tokenizer-test
+
+# Run full SQL test suite
 ./scripts/test_all.sh
 ```
-
-## Building & Testing (API v1 - Legacy)
-
-For older SQLite versions that don't support FTS5 API v2:
-
-```bash
-# Build all legacy API v1 tokenizers
-./scripts/build_all_legacy.sh
-
-# Test all legacy API v1 tokenizers
-./scripts/test_all_legacy.sh
-
-# Build all tokenizers for both API versions
-./scripts/build_all_with_legacy.sh
-```
-
----
-
-## Building Individual Locales
-
-### API v2 (Default)
-```bash
-mkdir build && cd build
-cmake .. -DLOCALE=ja  # e.g., Japanese
-make
-```
-
-> **macOS**: Homebrew installs `icu4c` and `sqlite` as keg-only (not in standard paths). The build scripts handle this automatically. For manual cmake, add:
-> ```bash
-> ICU_PREFIX=$(brew --prefix icu4c)
-> cmake .. -DLOCALE=ja \
->   -DICU_ROOT="$ICU_PREFIX" -DICU_INCLUDE_DIR="$ICU_PREFIX/include" \
->   -DSQLite3_ROOT=$(brew --prefix sqlite)
-> ```
-
-### API v1 (Legacy - for RHEL & older SQLite)
-```bash
-mkdir build && cd build
-cmake .. -DAPI_VERSION=v1 -DLOCALE=ja  # e.g., Japanese
-make
-```
-
-The resulting library will have a `_legacy` suffix (e.g., `libfts5_icu_ja_legacy.so`).
 
 ---
 
 ## Usage Examples
 
-### Loading API v1 (Legacy) Tokenizers
+### Loading Universal Tokenizer
 ```sql
-.load ./build/libfts5_icu_th_legacy  -- Extension (.so/.dll) is optional and best omitted for portability
-
-CREATE VIRTUAL TABLE documents_th USING fts5(
-    content,
-    tokenize = 'icu_th'
-);
-```
-
-### Loading API v2 (Current) Tokenizers
-```sql
-.load ./build/libfts5_icu_th
-
-CREATE VIRTUAL TABLE documents_th USING fts5(
-    content,
-    tokenize = 'icu_th'
-);
-```
-
-### Example: Thai Text Search
-```sql
--- Load the appropriate library
-.load ./build/libfts5_icu_th
-
--- Create table and search
-CREATE VIRTUAL TABLE documents_th USING fts5(content, tokenize = 'icu_th');
-INSERT INTO documents_th(content) VALUES ('การทดสอบภาษาไทยในระบบค้นหา');
-SELECT * FROM documents_th WHERE documents_th MATCH 'ภาษา';
-```
-
-### Example: Universal Multi-Language Support
-```sql
-.load ./build/libfts5_icu
+.load ./zig-out/lib/libfts5_icu
 
 CREATE VIRTUAL TABLE documents USING fts5(content, tokenize = 'icu');
 INSERT INTO documents(content) VALUES ('甜蜜蜜,你笑得甜蜜蜜-หวานปานน้ำผึ้ง,ยิ้มของคุณช่างหวานปานน้ำผึ้ง');
 SELECT * FROM documents WHERE documents MATCH 'หวาน';
 ```
 
----
+### Loading Locale-Specific Tokenizer (e.g. Thai)
+```sql
+.load ./zig-out/lib/libfts5_icu_th
 
-## Supported Locales
-
-| Locale | Language | Test File |
-|--------|----------|-----------|
-| `ar` | Arabic | `tests/test_ar_tokenizer.sql` |
-| `el` | Greek | `tests/test_el_tokenizer.sql` |
-| `he` | Hebrew | `tests/test_he_tokenizer.sql` |
-| `ja` | Japanese | `tests/test_ja_tokenizer.sql` |
-| `ko` | Korean | `tests/test_ko_tokenizer.sql` |
-| `ru` | Russian | `tests/test_ru_tokenizer.sql` |
-| `th` | Thai | `tests/test_th_tokenizer.sql` |
-| `zh` | Chinese | `tests/test_zh_tokenizer.sql` |
-| - | Universal | `tests/test_universal_tokenizer.sql` |
-
-### Locale Mappings
-- `cn` → `zh` (Chinese, with warning)
-- `jp` → `ja` (Japanese, with warning)
-- `kr` ↔ `ko` (Korean, both supported)
-- `iw` ↔ `he` (Hebrew, both supported)
-- `gr` ↔ `el` (Greek, both supported)
-
----
-
-## Advanced Configuration
-
-### Windows Build
-For Windows using Visual Studio:
-
-```powershell
-mkdir build
-cd build
-cmake -G "Visual Studio 17 2022" -T host=x64 -A x64 .. -DICU_ROOT="C:\icu" -DSQLite3_INCLUDE_DIR="C:\sqlite\include" -DSQLite3_LIBRARY="C:\sqlite\sqlite3.lib" -DAPI_VERSION=v1 -DLOCALE=th
-cmake --build . --config Release
+CREATE VIRTUAL TABLE documents_th USING fts5(content, tokenize = 'icu_th');
+INSERT INTO documents_th(content) VALUES ('การทดสอบภาษาไทยในระบบค้นหา');
+SELECT * FROM documents_th WHERE documents_th MATCH 'ภาษา';
 ```
 
-### Locale-Specific Performance Optimizations
-Locale-specific tokenizers use optimized ICU rules for each language:
-
-- **Japanese** (`ja`): `NFKD; Katakana-Hiragana; Lower; NFKC`
-- **Chinese** (`zh`): `NFKD; Traditional-Simplified; Lower; NFKC`
-- **Thai** (`th`): `NFKD; Lower; NFKC`
-- **Korean** (`ko`): `NFKD; Lower; NFKC`
-- **Arabic** (`ar`): `NFKD; Arabic-Latin; Lower; NFKC`
-- **Russian** (`ru`): `NFKD; Cyrillic-Latin; Lower; NFKC`
-- **Hebrew** (`he`): `NFKD; Hebrew-Latin; Lower; NFKC`
-- **Greek** (`el`): `NFKD; Greek-Latin; Lower; NFKC`
-
-**Universal tokenizer** rule: `NFKD; Arabic-Latin; Cyrillic-Latin; Hebrew-Latin; Greek-Latin; Latin-ASCII; Lower; NFKC; Traditional-Simplified; Katakana-Hiragana`
-
-### When to Use Each Approach
-- **Locale-specific**: When you know the primary language and performance is important
-- **Universal**: For mixed-language content or unknown language at build time
+### Querying Version
+```sql
+.load ./zig-out/lib/libfts5_icu
+SELECT fts5_icu_version(); -- Returns "0.6.0"
+```
 
 ---
 
-## Code Quality & Maintenance
+## Supported Locales & ICU Rules
 
-### Formatting & Linting
+| Locale | Tokenizer Name | Default Transliteration Rules |
+|--------|----------------|-------------------------------|
+| `ja` | `icu_ja` | `NFKD; Katakana-Hiragana; Lower; NFKC` |
+| `zh` | `icu_zh` | `NFKD; Traditional-Simplified; Lower; NFKC` |
+| `th` | `icu_th` | `NFKD; Lower; NFKC` |
+| `ko` | `icu_ko` | `NFKD; Lower; NFKC` |
+| `ar` | `icu_ar` | `NFKD; Arabic-Latin; Lower; NFKC` |
+| `ru` | `icu_ru` | `NFKD; Cyrillic-Latin; Lower; NFKC` |
+| `he` | `icu_he` | `NFKD; Hebrew-Latin; Lower; NFKC` |
+| `el` | `icu_el` | `NFKD; Greek-Latin; Lower; NFKC` |
+| — | `icu` (Universal) | `NFKD; Arabic-Latin; Cyrillic-Latin; Hebrew-Latin; Greek-Latin; Latin-ASCII; Lower; NFKC; Traditional-Simplified; Katakana-Hiragana` |
+
+---
+
+## Project Structure
+
+```
+fts5-icu-tokenizer/
+├── build.zig                  # Zig 0.16.0 build script
+├── build.zig.zon              # Package manifest & fingerprint
+├── src/
+│   ├── fts5_icu.zig           # SQLite extension exports (v1 & v2 APIs)
+│   ├── tokenizer.zig          # ICU tokenization & segmentation logic
+│   ├── rules.zig              # Locale rules & suffix mapping
+│   ├── c_includes.h           # Input header wrapper for translateC
+│   ├── icu_helper.c           # C wrapper for ICU version symbol renaming
+│   ├── test_transliterator.zig# Test runner
+│   ├── locale_specific_tests.zig
+│   └── test_locale_tokenizer.zig
+└── tests/                     # SQL integration test suite
+    └── *.sql
+```
+
+---
+
+## Formatting
+To format the codebase according to standard Zig style:
 ```bash
-# Format all source files
-./scripts/code-format.sh
-
-# Run static analysis
-./scripts/lint-check.sh
+zig fmt .
 ```
-
-### Documentation
-- [Script Reference](docs/SCRIPTS_REFERENCE.md) - Complete list of available scripts
-- [Build & Test Guide](docs/BUILD_TEST_README.md) - Detailed building and testing information
-- [API Implementation Details](docs/FTS5_API_IMPLEMENTATION.md) - Technical implementation documentation
-
----
-
-## Key Benefits
-
-- **High-Performance Text Search**: Optimized for various languages using ICU
-- **Cross-Platform Compatibility**: Works on Linux, Windows, and macOS
-- **RHEL Support**: Backwards compatibility for older SQLite versions
-- **Robust UTF-8 handling**: Correctly processes Unicode replacement characters (U+FFFD) and handles invalid sequences safely
-- **Memory Safe**: Includes buffer overflow prevention and defense-in-depth security checks
-- **Modular Design**: Clean, well-documented code structure

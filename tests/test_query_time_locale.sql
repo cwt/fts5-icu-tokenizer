@@ -1,7 +1,7 @@
 -- Test script for query-time and insert-time dynamic locale tokenization
 
 -- Load the universal tokenizer
-.load ./build/libfts5_icu
+.load ./zig-out/lib/libfts5_icu
 
 -- Create an FTS5 table with locale=1 support enabled
 CREATE VIRTUAL TABLE documents_dynamic USING fts5(

@@ -575,8 +575,18 @@ static int icuTokenize(Fts5Tokenizer* pTok, void* pCtx, int flags, const char* p
 }
 
 // ========================================================================
-// === MODULE INITIALIZATION ==============================================
+// === MODULE INITIALIZATION & VERSION ====================================
 // ========================================================================
+
+const char* fts5_icu_version(void) {
+    return FTS5_ICU_VERSION;
+}
+
+static void fts5_icu_version_sql(sqlite3_context *ctx, int argc, sqlite3_value **argv) {
+    UNUSED_PARAMETER(argc);
+    UNUSED_PARAMETER(argv);
+    sqlite3_result_text(ctx, FTS5_ICU_VERSION, -1, SQLITE_STATIC);
+}
 
 #ifdef _WIN32
 __declspec(dllexport)
@@ -585,6 +595,11 @@ __declspec(dllexport)
 int PASTE(sqlite3_ftsicu, INIT_LOCALE_SUFFIX_FOR_FUNCTION, legacy,
           _init)(sqlite3* db, char** pzErrMsg, const sqlite3_api_routines* pApi) {
     SQLITE_EXTENSION_INIT2(pApi);
+
+    // Register scalar SQL version function (e.g. SELECT fts5_icu_version();)
+    sqlite3_create_function(db, "fts5_icu_version", 0, SQLITE_UTF8 | SQLITE_DETERMINISTIC, 0,
+                            fts5_icu_version_sql, NULL, NULL);
+
     fts5_api* pFts5Api = fts5_api_from_db(db);
     if (!pFts5Api) {
         *pzErrMsg = sqlite3_mprintf("Failed to get FTS5 API");

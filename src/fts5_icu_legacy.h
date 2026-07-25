@@ -30,6 +30,10 @@
  * These macros are passed in by the build system.
  * They will be auto-derived from TOKENIZER_LOCALE below.
  */
+#ifndef FTS5_ICU_VERSION
+#define FTS5_ICU_VERSION "unknown"
+#endif
+
 #ifndef TOKENIZER_LOCALE
 #define TOKENIZER_LOCALE ""
 #endif
@@ -37,6 +41,11 @@
 #ifndef UNUSED_PARAMETER
 #define UNUSED_PARAMETER(X) (void)(X)
 #endif
+
+/**
+ * Returns the current version string of the FTS5 ICU tokenizer.
+ */
+const char* fts5_icu_version(void);
 
 // ========================================================================
 // === ICU RULE DEFINITIONS ===============================================

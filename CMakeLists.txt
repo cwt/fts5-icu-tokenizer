@@ -2,7 +2,7 @@
 cmake_minimum_required(VERSION 3.10)
 
 # Define the project name, version, and language
-project(fts5-icu-tokenizer VERSION 5.2 LANGUAGES C)
+project(fts5-icu-tokenizer VERSION 5.5.2 LANGUAGES C)
 
 # Set policy to allow using _ROOT variables
 if(POLICY CMP0074)
@@ -101,13 +101,18 @@ endif()
 # Create the shared library from the appropriate source file.
 add_library(fts5_icu SHARED ${SRC_FILE})
 
-# Set the dynamic output name for the library file.
-set_target_properties(fts5_icu PROPERTIES OUTPUT_NAME "fts5_icu${FULL_LIB_SUFFIX}")
+# Set the dynamic output name and binary version properties for the library file.
+set_target_properties(fts5_icu PROPERTIES
+  OUTPUT_NAME "fts5_icu${FULL_LIB_SUFFIX}"
+  VERSION ${PROJECT_VERSION}
+  SOVERSION ${PROJECT_VERSION_MAJOR}
+)
 
-# Pass the locale, tokenizer name, and init function suffix to the C code.
+# Pass the version, locale, tokenizer name, and init function suffix to the C code.
 # The escaped quotes are important for passing string values.
 # The INIT_LOCALE_SUFFIX does not have quotes so it can be used for token pasting.
 target_compile_definitions(fts5_icu PRIVATE
+  "FTS5_ICU_VERSION=\"${PROJECT_VERSION}\""
   "TOKENIZER_LOCALE=\"${LOCALE}\""
   "TOKENIZER_NAME=\"${TOKENIZER_NAME}\""
   "INIT_LOCALE_SUFFIX=${C_INIT_SUFFIX}"

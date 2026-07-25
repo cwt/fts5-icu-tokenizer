@@ -15,6 +15,9 @@ INSERT INTO test_universal_v2(content) VALUES ('Français');
 INSERT INTO test_universal_v2(content) VALUES ('русский');
 INSERT INTO test_universal_v2(content) VALUES ('العربية');
 
+-- Query the version
+SELECT fts5_icu_version();
+
 -- Query the table
 SELECT * FROM test_universal_v2 WHERE test_universal_v2 MATCH '测试';
 SELECT * FROM test_universal_v2 WHERE test_universal_v2 MATCH 'francais';

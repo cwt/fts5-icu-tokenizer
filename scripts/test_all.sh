@@ -21,6 +21,27 @@ case "$(uname -s)" in
     *)      LIB_EXT=so ;;
 esac
 
+# Extract expected version from CMakeLists.txt
+EXPECTED_VERSION=$(grep -E 'project\(fts5-icu-tokenizer VERSION' CMakeLists.txt | sed -E 's/.*VERSION ([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
+
+# Test extension version function
+echo ""
+echo "=================================================="
+echo "Testing extension version (v2)"
+echo "=================================================="
+if [ -f "./build/libfts5_icu.${LIB_EXT}" ]; then
+    DETECTED_VERSION=$(${SQLITE3} :memory: ".load ./build/libfts5_icu" "SELECT fts5_icu_version();" 2>/dev/null)
+    echo "Extension version: ${DETECTED_VERSION} (Expected: ${EXPECTED_VERSION})"
+    if [ "${DETECTED_VERSION}" = "${EXPECTED_VERSION}" ]; then
+        echo "SUCCESS: Version function test completed"
+    else
+        echo "ERROR: Version mismatch (Got: '${DETECTED_VERSION}', Expected: '${EXPECTED_VERSION}')"
+        exit 1
+    fi
+else
+    echo "WARNING: Universal tokenizer library not found"
+fi
+
 # Test the universal tokenizer
 echo ""
 echo "=================================================="

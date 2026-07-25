@@ -1,6 +1,6 @@
 # FTS5 ICU Tokenizer for SQLite (Zig 0.16.0 Edition)
 
-Version **0.6.0**
+Version **6.0.1**
 
 This project provides custom FTS5 tokenizers for SQLite implemented in **Zig 0.16.0** using the International Components for Unicode (ICU) library to provide robust word segmentation and text normalization across multiple languages.
 
@@ -25,6 +25,10 @@ This project was originally written in C with CMake. The rewrite to **Zig 0.16.0
 ### 4. Unified Codebase for FTS5 API v1 and v2
 - **Old C Problem**: Supporting legacy FTS5 API v1 (for older RHEL / SQLite installations) alongside API v2 required maintaining duplicated C files (`fts5_icu.c` vs `fts5_icu_legacy.c`) and fragile macro token-pasting (`PASTE_IMPL`).
 - **Zig Solution**: A single, clean Zig codebase ([src/fts5_icu.zig](file:///Users/cwt/Projects/fts5-icu-tokenizer/src/fts5_icu.zig)) exports both v2 and legacy v1 extension entrypoints natively, controlled cleanly via `build.zig` build options.
+
+### 5. Pure Zig C-Interop — No C Wrappers Needed
+- **Old C Problem**: Calling ICU functions from C required a separate `icu_helper.c` file with thin wrapper functions to avoid symbol conflicts.
+- **Zig Solution**: Zig's `addTranslateC` (`build.zig`) directly translates ICU and SQLite C headers into Zig `extern` declarations at build time. The Zig code calls ICU functions directly (`c.ubrk_open`, `c.utrans_openU`, `c.u_strFromUTF8`) via the `c` module — no intermediate C wrapper file, no `@cImport`. The entire codebase is pure Zig.
 
 ---
 
@@ -117,7 +121,7 @@ SELECT * FROM documents_th WHERE documents_th MATCH 'ภาษา';
 ### Querying Version
 ```sql
 .load ./zig-out/lib/libfts5_icu
-SELECT fts5_icu_version(); -- Returns "0.6.0"
+SELECT fts5_icu_version(); -- Returns "6.0.1"
 ```
 
 ---
@@ -148,8 +152,7 @@ fts5-icu-tokenizer/
 │   ├── fts5_icu.zig           # SQLite extension exports (v1 & v2 APIs)
 │   ├── tokenizer.zig          # ICU tokenization & segmentation logic
 │   ├── rules.zig              # Locale rules & suffix mapping
-│   ├── c_includes.h           # Input header wrapper for translateC
-│   ├── icu_helper.c           # C wrapper for ICU version symbol renaming
+│   ├── c_includes.h           # C header input for translateC (provides ICU + SQLite Zig bindings)
 │   ├── test_transliterator.zig# Test runner
 │   ├── locale_specific_tests.zig
 │   └── test_locale_tokenizer.zig

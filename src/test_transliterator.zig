@@ -10,12 +10,12 @@ fn testTransliterator(gpa: std.mem.Allocator, input: []const u8, testName: []con
     const rules_u16 = try tokenizer.utf8ToUtf16Alloc(gpa, rule_str);
     defer gpa.free(rules_u16);
 
-    const transliterator = c.fts5_utrans_openU(rules_u16.ptr, -1, c.UTRANS_FORWARD, null, 0, null, &status);
+    const transliterator = c.utrans_openU(rules_u16.ptr, -1, c.UTRANS_FORWARD, null, 0, null, &status);
     if (c.U_FAILURE(status) or transliterator == null) {
         std.debug.print("Error creating transliterator\n", .{});
         return error.TransliteratorCreateFailed;
     }
-    defer c.fts5_utrans_close(transliterator);
+    defer c.utrans_close(transliterator);
 
     const input_u16 = try tokenizer.utf8ToUtf16Alloc(gpa, input);
     defer gpa.free(input_u16);
@@ -29,7 +29,7 @@ fn testTransliterator(gpa: std.mem.Allocator, input: []const u8, testName: []con
     var limit: i32 = @intCast(input_u16.len);
     var out_len: i32 = @intCast(input_u16.len);
     status = c.U_ZERO_ERROR;
-    c.fts5_utrans_transUChars(transliterator, output_u16.ptr, &out_len, @intCast(capacity), 0, &limit, &status);
+    c.utrans_transUChars(transliterator, output_u16.ptr, &out_len, @intCast(capacity), 0, &limit, &status);
     if (c.U_FAILURE(status)) {
         std.debug.print("Error during transliteration\n", .{});
         return error.TransliterateFailed;
@@ -37,7 +37,7 @@ fn testTransliterator(gpa: std.mem.Allocator, input: []const u8, testName: []con
 
     var utf8_len: i32 = 0;
     status = c.U_ZERO_ERROR;
-    _ = c.fts5_u_strToUTF8(null, 0, &utf8_len, output_u16.ptr, limit, &status);
+    _ = c.u_strToUTF8(null, 0, &utf8_len, output_u16.ptr, limit, &status);
     if (status != c.U_BUFFER_OVERFLOW_ERROR and status != c.U_ZERO_ERROR) {
         return error.Utf8LengthFailed;
     }
@@ -46,7 +46,7 @@ fn testTransliterator(gpa: std.mem.Allocator, input: []const u8, testName: []con
     const utf8_output = try gpa.alloc(u8, @intCast(utf8_len + 1));
     defer gpa.free(utf8_output);
 
-    _ = c.fts5_u_strToUTF8(utf8_output.ptr, utf8_len + 1, null, output_u16.ptr, limit, &status);
+    _ = c.u_strToUTF8(utf8_output.ptr, utf8_len + 1, null, output_u16.ptr, limit, &status);
     if (c.U_FAILURE(status)) {
         return error.Utf8ConvertFailed;
     }

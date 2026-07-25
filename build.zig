@@ -6,7 +6,7 @@ pub fn build(b: *std.Build) void {
 
     const locale = b.option([]const u8, "locale", "Tokenizer locale (e.g. ja, zh, th, ar, ru, he, el)") orelse "";
     const api_version = b.option([]const u8, "api_version", "FTS5 API version (v1 or v2)") orelse "v2";
-    const version_str = "0.6.0";
+    const version_str = "6.0.1";
 
     // Build options module for default library
     const options = b.addOptions();
@@ -38,10 +38,6 @@ pub fn build(b: *std.Build) void {
     c_mod.linkSystemLibrary("icuuc", .{});
     c_mod.linkSystemLibrary("icudata", .{});
     c_mod.link_libc = true;
-
-    c_mod.addCSourceFile(.{
-        .file = b.path("src/icu_helper.c"),
-    });
 
     // Helper for user modules
     const linkModule = struct {

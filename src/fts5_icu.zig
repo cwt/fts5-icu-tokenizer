@@ -382,5 +382,5 @@ pub export fn sqlite3_ftsicuellegacy_init(db: ?*c.sqlite3, pzErrMsg: [*c][*c]u8,
 }
 
 test "version string" {
-    try std.testing.expectEqualStrings("0.6.0", VERSION);
+    try std.testing.expectEqualStrings("6.0.1", VERSION);
 }

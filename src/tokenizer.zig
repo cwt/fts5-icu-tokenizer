@@ -26,16 +26,16 @@ pub const IcuTokenizer = struct {
         const locale_c = try allocator.dupeZ(u8, locale);
         defer allocator.free(locale_c);
 
-        tok.pBreakIterator = c.fts5_ubrk_open(c.UBRK_WORD, locale_c.ptr, null, 0, &status);
+        tok.pBreakIterator = c.ubrk_open(c.UBRK_WORD, locale_c.ptr, null, 0, &status);
         if (c.U_FAILURE(status) or tok.pBreakIterator == null) {
             return error.IcuBreakIteratorFailed;
         }
         errdefer {
-            if (tok.pBreakIterator) |bi| c.fts5_ubrk_close(bi);
+            if (tok.pBreakIterator) |bi| c.ubrk_close(bi);
         }
 
         status = c.U_ZERO_ERROR;
-        tok.pTransliterator = c.fts5_utrans_openU(rules_u16.ptr, -1, c.UTRANS_FORWARD, null, 0, null, &status);
+        tok.pTransliterator = c.utrans_openU(rules_u16.ptr, -1, c.UTRANS_FORWARD, null, 0, null, &status);
         if (c.U_FAILURE(status) or tok.pTransliterator == null) {
             return error.IcuTransliteratorFailed;
         }
@@ -44,8 +44,8 @@ pub const IcuTokenizer = struct {
     }
 
     pub fn destroy(self: *IcuTokenizer, allocator: std.mem.Allocator) void {
-        if (self.pBreakIterator) |bi| c.fts5_ubrk_close(bi);
-        if (self.pTransliterator) |tr| c.fts5_utrans_close(tr);
+        if (self.pBreakIterator) |bi| c.ubrk_close(bi);
+        if (self.pTransliterator) |tr| c.utrans_close(tr);
         allocator.destroy(self);
     }
 };
@@ -57,7 +57,7 @@ pub fn utf8ToUtf16Alloc(allocator: std.mem.Allocator, text: []const u8) ![:0]c.U
     }
     var status: c.UErrorCode = c.U_ZERO_ERROR;
     var len: i32 = 0;
-    _ = c.fts5_u_strFromUTF8(null, 0, &len, text.ptr, @intCast(text.len), &status);
+    _ = c.u_strFromUTF8(null, 0, &len, text.ptr, @intCast(text.len), &status);
     if (status != c.U_BUFFER_OVERFLOW_ERROR and status != c.U_ZERO_ERROR) {
         return error.UCharConversionFailed;
     }
@@ -65,7 +65,7 @@ pub fn utf8ToUtf16Alloc(allocator: std.mem.Allocator, text: []const u8) ![:0]c.U
     const ulen: usize = @intCast(len);
     const buf = try allocator.allocSentinel(c.UChar, ulen, 0);
     errdefer allocator.free(buf);
-    _ = c.fts5_u_strFromUTF8(buf.ptr, @intCast(ulen + 1), null, text.ptr, @intCast(text.len), &status);
+    _ = c.u_strFromUTF8(buf.ptr, @intCast(ulen + 1), null, text.ptr, @intCast(text.len), &status);
     if (c.U_FAILURE(status)) {
         return error.UCharConversionFailed;
     }
@@ -130,8 +130,8 @@ pub fn tokenizeText(
     var dynBreak: ?*c.UBreakIterator = null;
     var dynTrans: ?*c.UTransliterator = null;
     defer {
-        if (dynBreak) |b| c.fts5_ubrk_close(b);
-        if (dynTrans) |t| c.fts5_utrans_close(t);
+        if (dynBreak) |b| c.ubrk_close(b);
+        if (dynTrans) |t| c.utrans_close(t);
     }
 
     if (override_locale) |loc| {
@@ -144,12 +144,12 @@ pub fn tokenizeText(
             const dyn_rules_u16 = try utf8ToUtf16Alloc(allocator, dyn_rules);
             defer allocator.free(dyn_rules_u16);
 
-            dynBreak = c.fts5_ubrk_open(c.UBRK_WORD, loc_c.ptr, null, 0, &status);
+            dynBreak = c.ubrk_open(c.UBRK_WORD, loc_c.ptr, null, 0, &status);
             if (c.U_FAILURE(status) or dynBreak == null) {
                 return c.SQLITE_ERROR;
             }
             status = c.U_ZERO_ERROR;
-            dynTrans = c.fts5_utrans_openU(dyn_rules_u16.ptr, -1, c.UTRANS_FORWARD, null, 0, null, &status);
+            dynTrans = c.utrans_openU(dyn_rules_u16.ptr, -1, c.UTRANS_FORWARD, null, 0, null, &status);
             if (c.U_FAILURE(status) or dynTrans == null) {
                 return c.SQLITE_ERROR;
             }
@@ -159,7 +159,7 @@ pub fn tokenizeText(
     }
 
     var status: c.UErrorCode = c.U_ZERO_ERROR;
-    c.fts5_ubrk_setText(pBreakIterator, utf16_text_buffer.ptr, @intCast(utf16_pos), &status);
+    c.ubrk_setText(pBreakIterator, utf16_text_buffer.ptr, @intCast(utf16_pos), &status);
     if (c.U_FAILURE(status)) return c.SQLITE_ERROR;
 
     var transBuf = try allocator.alloc(c.UChar, 2048);
@@ -168,9 +168,9 @@ pub fn tokenizeText(
     var destBuf = try allocator.alloc(u8, 4096);
     defer allocator.free(destBuf);
 
-    var token_start = c.fts5_ubrk_first(pBreakIterator);
+    var token_start = c.ubrk_first(pBreakIterator);
     while (true) {
-        const token_end = c.fts5_ubrk_next(pBreakIterator);
+        const token_end = c.ubrk_next(pBreakIterator);
         if (token_end == c.UBRK_DONE) break;
 
         if (token_start < 0 or token_end < 0 or @as(usize, @intCast(token_start)) >= utf16_pos or @as(usize, @intCast(token_end)) > utf16_pos) {
@@ -178,7 +178,7 @@ pub fn tokenizeText(
             continue;
         }
 
-        const word_status = c.fts5_ubrk_getRuleStatus(pBreakIterator);
+        const word_status = c.ubrk_getRuleStatus(pBreakIterator);
         if (word_status >= c.UBRK_WORD_NONE and word_status < c.UBRK_WORD_NONE_LIMIT) {
             token_start = token_end;
             continue;
@@ -211,7 +211,7 @@ pub fn tokenizeText(
         status = c.U_ZERO_ERROR;
         var limit: i32 = @intCast(copyLen);
         var outLen: i32 = @intCast(copyLen);
-        c.fts5_utrans_transUChars(pTransliterator, transBuf.ptr, &outLen, @intCast(transBuf.len), 0, &limit, &status);
+        c.utrans_transUChars(pTransliterator, transBuf.ptr, &outLen, @intCast(transBuf.len), 0, &limit, &status);
         if (c.U_FAILURE(status)) {
             token_start = token_end;
             continue;
@@ -226,14 +226,14 @@ pub fn tokenizeText(
 
         var utf8Len: i32 = 0;
         status = c.U_ZERO_ERROR;
-        _ = c.fts5_u_strToUTF8WithSub(destBuf.ptr, @intCast(destBuf.len), &utf8Len, transBuf.ptr, @intCast(validOutLen), 0xFFFD, null, &status);
+        _ = c.u_strToUTF8WithSub(destBuf.ptr, @intCast(destBuf.len), &utf8Len, transBuf.ptr, @intCast(validOutLen), 0xFFFD, null, &status);
 
         if (status == c.U_BUFFER_OVERFLOW_ERROR or (c.U_FAILURE(status) and utf8Len > @as(i32, @intCast(destBuf.len)))) {
             const newDestSize: usize = @intCast(utf8Len + 64);
             destBuf = try allocator.realloc(destBuf, newDestSize);
             utf8Len = 0;
             status = c.U_ZERO_ERROR;
-            _ = c.fts5_u_strToUTF8WithSub(destBuf.ptr, @intCast(destBuf.len), &utf8Len, transBuf.ptr, @intCast(validOutLen), 0xFFFD, null, &status);
+            _ = c.u_strToUTF8WithSub(destBuf.ptr, @intCast(destBuf.len), &utf8Len, transBuf.ptr, @intCast(validOutLen), 0xFFFD, null, &status);
         }
 
         if (!c.U_FAILURE(status) and utf8Len > 0) {

@@ -133,6 +133,60 @@ pub fn transliterateString(allocator: std.mem.Allocator, input: []const u8, rule
     return utf8_output;
 }
 
+// Build the UTF-8 byte-offset map (utf16 index -> utf8 start byte) for `text`.
+// Tolerant of malformed UTF-8 (substitutes U+FFFD), so it matches the std
+// converter's output for valid input and degrades gracefully otherwise.
+fn buildByteOffsetMap(map: []i32, text: []const u8) void {
+    var utf8_pos: usize = 0;
+    var u: usize = 0;
+    while (utf8_pos < text.len and u < map.len) {
+        const orig_utf8 = utf8_pos;
+        const cp_len = std.unicode.utf8ByteSequenceLength(text[utf8_pos]) catch 1;
+        const end = @min(utf8_pos + cp_len, text.len);
+        const cp = std.unicode.utf8Decode(text[utf8_pos..end]) catch 0xFFFD;
+        utf8_pos = end;
+        const units: usize = if (cp <= 0xFFFF) 1 else 2;
+        if (u < map.len) map[u] = @intCast(orig_utf8);
+        if (cp > 0xFFFF and u + 1 < map.len) map[u + 1] = @intCast(orig_utf8);
+        u += units;
+    }
+}
+
+// Tolerant manual UTF-8 -> UTF-16 conversion (substitutes U+FFFD for invalid
+// sequences). Fills both the UTF-16 buffer and the byte-offset map; returns the
+// number of UTF-16 units written. Used as a fallback when
+// std.unicode.utf8ToUtf16Le rejects malformed input.
+fn convertUtf8ToUtf16Tolerant(
+    utf16_buf: []c.UChar,
+    map: []i32,
+    text: []const u8,
+) usize {
+    var utf16_pos: usize = 0;
+    var utf8_pos: usize = 0;
+    while (utf8_pos < text.len and utf16_pos < utf16_buf.len) {
+        const orig_utf8 = utf8_pos;
+        const cp_len = std.unicode.utf8ByteSequenceLength(text[utf8_pos]) catch 1;
+        const end = @min(utf8_pos + cp_len, text.len);
+        const cp = std.unicode.utf8Decode(text[utf8_pos..end]) catch 0xFFFD;
+        utf8_pos = end;
+
+        const orig_utf16 = utf16_pos;
+        if (cp <= 0xFFFF) {
+            utf16_buf[utf16_pos] = @intCast(cp);
+            utf16_pos += 1;
+        } else {
+            if (utf16_pos + 2 > utf16_buf.len) break;
+            utf16_buf[utf16_pos] = @intCast(0xD800 + ((cp - 0x10000) >> 10));
+            utf16_buf[utf16_pos + 1] = @intCast(0xDC00 + ((cp - 0x10000) & 0x3FF));
+            utf16_pos += 2;
+        }
+
+        if (orig_utf16 < map.len) map[orig_utf16] = @intCast(orig_utf8);
+        if (cp > 0xFFFF and orig_utf16 + 1 < map.len) map[orig_utf16 + 1] = @intCast(orig_utf8);
+    }
+    return utf16_pos;
+}
+
 pub fn tokenizeText(
     allocator: std.mem.Allocator,
     tokenizer: *IcuTokenizer,
@@ -144,7 +198,8 @@ pub fn tokenizeText(
     if (text.len == 0) return c.SQLITE_OK;
 
     const STACK_CAP = 512;
-    const req_u16_cap = text.len + 1;
+    // UTF-16 is at most 2 units per UTF-8 byte, so size for 2*len + 1.
+    const req_u16_cap = text.len * 2 + 1;
 
     var stack_utf16: [STACK_CAP]c.UChar = undefined;
     var stack_map: [STACK_CAP]i32 = undefined;
@@ -187,33 +242,16 @@ pub fn tokenizeText(
         break :blk heap_dest.?;
     };
 
-    // Convert UTF-8 to UTF-16 with byte offset mapping
-    var utf16_pos: usize = 0;
-    var utf8_pos: usize = 0;
-    while (utf8_pos < text.len and utf16_pos < utf16_text_buffer.len) {
-        const orig_utf8 = utf8_pos;
-        const cp_len = std.unicode.utf8ByteSequenceLength(text[utf8_pos]) catch 1;
-        const end = @min(utf8_pos + cp_len, text.len);
-        const cp = std.unicode.utf8Decode(text[utf8_pos..end]) catch 0xFFFD;
-        utf8_pos = end;
-
-        const orig_utf16 = utf16_pos;
-        if (cp <= 0xFFFF) {
-            utf16_text_buffer[utf16_pos] = @intCast(cp);
-            utf16_pos += 1;
-        } else {
-            if (utf16_pos + 2 > utf16_text_buffer.len) break;
-            utf16_text_buffer[utf16_pos] = @intCast(0xD800 + ((cp - 0x10000) >> 10));
-            utf16_text_buffer[utf16_pos + 1] = @intCast(0xDC00 + ((cp - 0x10000) & 0x3FF));
-            utf16_pos += 2;
-        }
-
-        if (orig_utf16 < byte_offset_map.len) {
-            byte_offset_map[orig_utf16] = @intCast(orig_utf8);
-        }
-        if (cp > 0xFFFF and orig_utf16 + 1 < byte_offset_map.len) {
-            byte_offset_map[orig_utf16 + 1] = @intCast(orig_utf8);
-        }
+    // Convert UTF-8 -> UTF-16. Use the std converter (bug #4): it is
+    // vectorized and battle-tested. It errors on malformed input, so fall back
+    // to a tolerant manual conversion that substitutes U+FFFD (preserving the
+    // previous behavior for the "malformed UTF-8 and emoji safety" test).
+    var utf16_pos: usize = undefined;
+    if (std.unicode.utf8ToUtf16Le(utf16_text_buffer, text)) |n| {
+        utf16_pos = n;
+        buildByteOffsetMap(byte_offset_map, text);
+    } else |_| {
+        utf16_pos = convertUtf8ToUtf16Tolerant(utf16_text_buffer, byte_offset_map, text);
     }
     if (utf16_pos < byte_offset_map.len) {
         byte_offset_map[utf16_pos] = @intCast(text.len);
@@ -486,6 +524,36 @@ test "tokenizeText malformed UTF-8 and emoji safety" {
     try std.testing.expectEqual(@as(c_int, c.SQLITE_OK), rc2);
 }
 
+// Bug #4: the UTF-8 -> UTF-16 conversion (now std.unicode.utf8ToUtf16Le) must
+// not drop or truncate a trailing surrogate-pair codepoint. Verify a trailing
+// emoji survives tokenization as a complete codepoint.
+test "tokenizeText byte ranges around surrogate pair (bug #4)" {
+    const gpa = std.testing.allocator;
+
+    const tok = try IcuTokenizer.create(gpa, "");
+    defer tok.destroy(gpa);
+
+    // Astral-plane char (emoji, 4 UTF-8 bytes / 2 UTF-16 units) between two
+    // words. The std UTF-8 -> UTF-16 conversion (bug #4) must map the emoji's
+    // 4 bytes correctly so the following word's byte range is exact.
+    // bytes: hello(5) + 🌍(4) + world(5) = 14
+    const text = "hello🌍world";
+    var cap: CaptureWithRange = .{ .gpa = gpa, .tokens = .empty };
+    defer {
+        for (cap.tokens.items) |t| gpa.free(t.text);
+        cap.tokens.deinit(gpa);
+    }
+    const rc = try tokenizeText(gpa, tok, text, null, &cap, captureRangeCallback);
+    try std.testing.expectEqual(@as(c_int, c.SQLITE_OK), rc);
+
+    for (cap.tokens.items) |t| {
+        if (std.mem.eql(u8, t.text, "world")) {
+            try std.testing.expectEqual(@as(i32, 9), t.i_start);
+            try std.testing.expectEqual(@as(i32, 14), t.i_end);
+        }
+    }
+}
+
 test "concurrent multi-threaded tokenizeText thread safety" {
     const testing_allocator = std.testing.allocator;
 
@@ -534,6 +602,35 @@ fn captureTokenCallback(
     const cap: *Capture = @ptrCast(@alignCast(pCtx.?));
     const owned = cap.gpa.dupe(u8, pToken[0..@intCast(nToken)]) catch return c.SQLITE_NOMEM;
     cap.tokens.append(cap.gpa, owned) catch {
+        cap.gpa.free(owned);
+        return c.SQLITE_NOMEM;
+    };
+    return c.SQLITE_OK;
+}
+
+const TokenRange = struct {
+    text: []const u8,
+    i_start: i32,
+    i_end: i32,
+};
+
+const CaptureWithRange = struct {
+    gpa: std.mem.Allocator,
+    tokens: std.ArrayList(TokenRange),
+};
+
+fn captureRangeCallback(
+    pCtx: ?*anyopaque,
+    flags: c_int,
+    pToken: [*c]const u8,
+    nToken: c_int,
+    iStart: c_int,
+    iEnd: c_int,
+) callconv(.c) c_int {
+    _ = flags;
+    const cap: *CaptureWithRange = @ptrCast(@alignCast(pCtx.?));
+    const owned = cap.gpa.dupe(u8, pToken[0..@intCast(nToken)]) catch return c.SQLITE_NOMEM;
+    cap.tokens.append(cap.gpa, .{ .text = owned, .i_start = iStart, .i_end = iEnd }) catch {
         cap.gpa.free(owned);
         return c.SQLITE_NOMEM;
     };

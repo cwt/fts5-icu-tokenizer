@@ -6,23 +6,18 @@ This document explains the organization of the FTS5 ICU Tokenizer project.
 
 ```
 fts5-icu-tokenizer/
-├── build/                  # Build output directory (created during build process)
 ├── docs/                   # Documentation files
 ├── scripts/                # Build and utility scripts
-├── src/                    # Source code
+├── src/                    # Zig source code files
 ├── tests/                  # Test scripts and SQL files
-├── CMakeLists.txt          # CMake build configuration
+├── build.zig               # Zig build configuration
+├── build.zig.zon           # Zig package dependencies & metadata
 ├── LICENSE                 # License information
 ├── README.md               # Main project documentation
 └── .hg/                    # Mercurial version control directory
 ```
 
 ## Directory Details
-
-### `build/`
-Contains the compiled shared libraries after building:
-- `libfts5_icu.so` - Universal tokenizer
-- `libfts5_icu_*.so` - Locale-specific tokenizers (one for each supported locale)
 
 ### `docs/`
 Documentation files:
@@ -32,14 +27,21 @@ Documentation files:
 
 ### `scripts/`
 Utility scripts for building and testing:
-- `build_all.sh` - Builds all supported locales and the universal tokenizer
+- `build.sh` - Builds the primary tokenizer
+- `build_all.sh` - Builds all supported locales and the universal tokenizer (v2 API)
+- `build_legacy.sh` - Builds the primary tokenizer using API v1 (legacy)
+- `build_all_legacy.sh` - Builds all supported locales (API v1)
+- `test.sh` - Tests default universal & Japanese tokenizers
 - `test_all.sh` - Tests all built libraries
-- `build_test.sh` - Original build test script (legacy)
-- `run_test.sh` - Original run test script (legacy)
+- `code-format.sh` - Formats code using `zig fmt`
+- `lint-check.sh` - Checks source code using `zig ast-check`
 
 ### `src/`
 Source code files:
-- `fts5_icu.c` - Main implementation of the FTS5 ICU tokenizer
+- `fts5_icu.zig` - Entrypoint for FTS5 ICU tokenizers (v1 & v2 APIs)
+- `tokenizer.zig` - Core tokenization logic & ICU word boundary iterator
+- `rules.zig` - Locale-specific transliteration & normalization rule mappings
+- `c_icu.zig` / `c_includes.h` - C interop bindings for ICU & SQLite APIs
 
 ### `tests/`
 Test SQL scripts for each supported locale:

@@ -31,20 +31,16 @@ This script will:
 3. Show progress and any warnings during the build process
 
 ### Building Individual Locales
-You can also build individual locales using CMake directly:
+You can build individual locales using `zig build` or `scripts/build.sh`:
 
 ```bash
-# Create build directory
-mkdir build
-cd build
+# Build for a specific locale (e.g., Japanese)
+zig build -Dlocale=ja
 
-# Configure for a specific locale (e.g., Japanese)
-cmake .. -DLOCALE=ja
+# Or using the build script
+./scripts/build.sh ja
 
-# Build
-make
-
-# The resulting library will be named libfts5_icu_ja.so
+# The resulting library will be in zig-out/lib/ (and symlinked in ./build)
 ```
 
 ## Test Scripts

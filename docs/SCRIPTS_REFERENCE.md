@@ -127,67 +127,17 @@ This script:
 ## Code Quality Scripts
 
 ### `code-format.sh`
-Formats all source code files using clang-format and removes trailing whitespace.
+Formats all source code files using `zig fmt .`.
 
 Usage:
 ```bash
 ./scripts/code-format.sh
 ```
 
-This script:
-1. Applies clang-format rules to all .c and .h files in the src/ directory
-2. Removes trailing whitespace from all .c and .h files
-3. Modifies files in-place using the `-i` flag
-
 ### `lint-check.sh`
-Performs static code analysis using cppcheck.
+Performs static AST checks on Zig source files using `zig ast-check`.
 
 Usage:
 ```bash
 ./scripts/lint-check.sh
 ```
-
-This script runs cppcheck with the following configuration:
-- Exhaustive checking level
-- Enables warning, style, performance, and portability checks
-- Uses C11 standard compliance
-- Provides verbose output
-
-## Test Development Scripts
-
-### `build_test.sh`
-Builds the ICU transliterator test program for development and debugging.
-
-Usage:
-```bash
-./scripts/build_test.sh
-```
-
-### `run_test.sh`
-Builds and runs the ICU transliterator test program.
-
-Usage:
-```bash
-./scripts/run_test.sh
-```
-
-This script:
-1. Builds the test program
-2. Runs the original test program
-3. Runs the locale-specific test program
-
-## Utility Scripts
-
-### `demo.sh`
-Provides a demonstration of building and testing the Japanese and universal tokenizers.
-
-Usage:
-```bash
-./scripts/demo.sh
-```
-
-This script:
-1. Builds the Japanese tokenizer
-2. Checks the built libraries
-3. Tests both Japanese and universal tokenizers
-4. Shows how to use the implementation in projects

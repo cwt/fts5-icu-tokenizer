@@ -89,7 +89,7 @@ pub fn transliterateString(allocator: std.mem.Allocator, input: []const u8, rule
     defer allocator.free(input_u16);
 
     const capacity = input_u16.len * 3 + 64;
-    const output_u16 = try allocator.alloc(c.UChar, capacity);
+    var output_u16 = try allocator.alloc(c.UChar, capacity);
     defer allocator.free(output_u16);
 
     @memcpy(output_u16[0..input_u16.len], input_u16);
@@ -98,6 +98,18 @@ pub fn transliterateString(allocator: std.mem.Allocator, input: []const u8, rule
     var out_len: i32 = @intCast(input_u16.len);
     status = c.U_ZERO_ERROR;
     icu.utrans_transUChars(transliterator, output_u16.ptr, &out_len, @intCast(capacity), 0, &limit, &status);
+    if (status == c.U_BUFFER_OVERFLOW_ERROR) {
+        // Transliteration expanded beyond the buffer (bug #3): grow to the
+        // required length and retry, instead of returning an error.
+        const need: usize = @as(usize, @intCast(out_len)) + 64;
+        allocator.free(output_u16);
+        output_u16 = try allocator.alloc(c.UChar, need);
+        @memcpy(output_u16[0..input_u16.len], input_u16);
+        out_len = @intCast(input_u16.len);
+        limit = out_len;
+        status = c.U_ZERO_ERROR;
+        icu.utrans_transUChars(transliterator, output_u16.ptr, &out_len, @intCast(need), 0, &limit, &status);
+    }
     if (c.U_FAILURE(status)) {
         return error.TransliterateFailed;
     }
@@ -386,6 +398,20 @@ test "utf8ToUtf16Alloc memory safety" {
     const u16_hello = try utf8ToUtf16Alloc(testing_allocator, "hello");
     defer testing_allocator.free(u16_hello);
     try std.testing.expectEqual(@as(usize, 5), u16_hello.len);
+}
+
+test "transliterateString grows buffer instead of erroring (bug #3)" {
+    const gpa = std.testing.allocator;
+
+    // Long mixed input that expands under transliteration. Must succeed and
+    // produce the expected Latin output rather than error.TransliterateFailed.
+    const input = "русский текст العربية Ελληνικά Français Español";
+    const out = try transliterateString(gpa, input, rules.ICU_RULE_DEFAULT);
+    defer gpa.free(out);
+
+    try std.testing.expect(out.len > 0);
+    try std.testing.expect(std.mem.indexOf(u8, out, "russkij") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out, "francais") != null);
 }
 
 test "IcuTokenizer creation & destruction memory safety" {

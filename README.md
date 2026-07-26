@@ -1,6 +1,6 @@
 # FTS5 ICU Tokenizer for SQLite (Zig 0.16.0 Edition)
 
-Version **6.0.2**
+Version **6.0.3**
 
 This project provides custom FTS5 tokenizers for SQLite implemented in **Zig 0.16.0** using the International Components for Unicode (ICU) library to provide robust word segmentation and text normalization across multiple languages.
 
@@ -121,7 +121,7 @@ SELECT * FROM documents_th WHERE documents_th MATCH 'ภาษา';
 ### Querying Version
 ```sql
 .load ./zig-out/lib/libfts5_icu
-SELECT fts5_icu_version(); -- Returns "6.0.2"
+SELECT fts5_icu_version(); -- Returns "6.0.3"
 ```
 
 ---

@@ -22,7 +22,7 @@ pub fn build(b: *std.Build) void {
 
     const locale = b.option([]const u8, "locale", "Tokenizer locale (e.g. ja, zh, th, ar, ru, he, el)") orelse "";
     const api_version = b.option([]const u8, "api_version", "FTS5 API version (v1 or v2)") orelse "v2";
-    const version_str = "6.0.2";
+    const version_str = "6.0.3";
 
     const lto_enabled = !target.result.os.tag.isDarwin();
     const is_macos = builtin.os.tag.isDarwin();

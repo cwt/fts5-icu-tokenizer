@@ -21,12 +21,21 @@ const fts5_tokenizer_v2 = extern struct {
     xTokenize: ?*const fn (?*Fts5Tokenizer, ?*anyopaque, c_int, [*c]const u8, c_int, [*c]const u8, c_int, ?*const fn (?*anyopaque, c_int, [*c]const u8, c_int, c_int, c_int) callconv(.c) c_int) callconv(.c) c_int,
 };
 
+const fts5_extension_function = ?*const fn (
+    [*c]const fts5_api,
+    ?*anyopaque,
+    ?*c.sqlite3_context,
+    c_int,
+    [*c]?*c.sqlite3_value,
+) callconv(.c) void;
+
 const fts5_api = extern struct {
     iVersion: c_int,
     xCreateTokenizer: ?*const fn (?*fts5_api, [*c]const u8, ?*anyopaque, *fts5_tokenizer, ?*const fn (?*anyopaque) callconv(.c) void) callconv(.c) c_int,
     xFindTokenizer: ?*const fn (?*fts5_api, [*c]const u8, [*c]?*anyopaque, *fts5_tokenizer) callconv(.c) c_int,
+    xCreateFunction: ?*const fn (?*fts5_api, [*c]const u8, ?*anyopaque, fts5_extension_function, ?*const fn (?*anyopaque) callconv(.c) void) callconv(.c) c_int,
     xCreateTokenizer_v2: ?*const fn (?*fts5_api, [*c]const u8, ?*anyopaque, *fts5_tokenizer_v2, ?*const fn (?*anyopaque) callconv(.c) void) callconv(.c) c_int,
-    xFindTokenizer_v2: ?*const fn (?*fts5_api, [*c]const u8, [*c]?*anyopaque, *fts5_tokenizer_v2) callconv(.c) c_int,
+    xFindTokenizer_v2: ?*const fn (?*fts5_api, [*c]const u8, [*c]?*anyopaque, [*c]*fts5_tokenizer_v2) callconv(.c) c_int,
 };
 
 pub export var sqlite3_api: [*c]const c.sqlite3_api_routines = null;
@@ -179,7 +188,7 @@ fn initExtensionForLocaleV2(
     }
 
     const api = pFts5Api.?;
-    if (api.iVersion < 2) {
+    if (api.iVersion < 3) {
         if (pApi.mprintf) |mprintf_fn| {
             pzErrMsg.* = mprintf_fn("FTS5 v2 API not available");
         }
@@ -405,5 +414,5 @@ pub export fn sqlite3_ftsicuellegacy_init(db: ?*c.sqlite3, pzErrMsg: [*c][*c]u8,
 }
 
 test "version string" {
-    try std.testing.expectEqualStrings("6.0.2", VERSION);
+    try std.testing.expectEqualStrings("6.0.3", VERSION);
 }

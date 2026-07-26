@@ -1,208 +1,130 @@
-# FTS5 ICU Tokenizer for SQLite - FTS5 API Implementation
+# FTS5 ICU Tokenizer for SQLite - FTS5 API Implementation (Zig 0.16.0)
 
-This project uses the FTS5 v2 API implementation, which fully complies with the FTS5 v2 API specifications and provides enhanced internationalization capabilities.
+This project provides FTS5 tokenizer extensions for SQLite implemented in **Zig 0.16.0**. It supports both the primary **FTS5 v2 API** (`fts5_tokenizer_v2`) and the legacy **FTS5 v1 API** (`fts5_tokenizer`) using the International Components for Unicode (ICU) library.
 
-## Advantages of the FTS5 v2 API
+---
 
-The FTS5 v2 API provides several important advantages over the v1 API:
+## FTS5 API v2 vs v1 Overview
 
-### 1. Locale Support
-The most significant enhancement in the v2 API is the addition of `pLocale` and `nLocale` parameters to the `xTokenize` method. This allows tokenizers to:
-- Receive locale information for text processing
-- Adjust tokenization behavior based on language-specific rules
-- Support internationalization more effectively
+### FTS5 v2 API
+The FTS5 v2 API (`fts5_tokenizer_v2`) is the default interface in SQLite 3.20.0+. Key features:
+- **`iVersion`**: Set to `2` for explicit version tracking.
+- **Locale Support**: `xTokenize` includes `pLocale` and `nLocale` parameters (`const char *pLocale, int nLocale`), enabling per-query locale-aware tokenization.
+- **`xCreateTokenizer_v2`**: Registered via the `xCreateTokenizer_v2` method on the `fts5_api` structure.
 
-### 2. Version Tracking
-The v2 API includes an `iVersion` field that explicitly identifies the API version, making it easier to manage compatibility between different tokenizer implementations.
+### FTS5 v1 API (Legacy)
+The FTS5 v1 API (`fts5_tokenizer`) is maintained for compatibility with older SQLite builds and enterprise distributions (e.g. RHEL 7/8).
+- `xTokenize` does not accept locale parameters.
+- Registered via the `xCreateTokenizer` method on the `fts5_api` structure.
 
-### 3. Better Internationalization
-With locale support, v2 tokenizers can implement language-specific tokenization rules, such as:
-- Language-specific stemming
-- Locale-aware case folding
-- Language-specific stop word handling
+---
 
-### 4. Enhanced Function Signatures
-The v2 API provides proper function signatures that comply with current FTS5 documentation, ensuring better integration with SQLite's FTS5 subsystem.
+## Zig Struct Definitions ([src/fts5_icu.zig](file:///Users/cwt/Projects/fts5-icu-tokenizer/src/fts5_icu.zig))
 
-## API Structure Differences
+In Zig, the C FTS5 structures are represented using `extern struct`:
 
-### v1 API Structure (fts5_tokenizer)
-```c
-typedef struct fts5_tokenizer fts5_tokenizer;
-struct fts5_tokenizer {
-  int (*xCreate)(void*, const char **azArg, int nArg, Fts5Tokenizer **ppOut);
-  void (*xDelete)(Fts5Tokenizer*);
-  int (*xTokenize)(Fts5Tokenizer*, 
-      void *pCtx,
-      int flags,
-      const char *pText, int nText,
-      int (*xToken)(
-        void *pCtx,
-        int tflags,
-        const char *pToken,
-        int nToken,
-        int iStart,
-        int iEnd
-      )
-  );
+```zig
+const Fts5Tokenizer = opaque {};
+
+// FTS5 API v1 structure
+const fts5_tokenizer = extern struct {
+    xCreate: ?*const fn (?*anyopaque, [*c][*c]const u8, c_int, [*c]?*Fts5Tokenizer) callconv(.c) c_int,
+    xDelete: ?*const fn (?*Fts5Tokenizer) callconv(.c) void,
+    xTokenize: ?*const fn (?*Fts5Tokenizer, ?*anyopaque, c_int, [*c]const u8, c_int, ?*const fn (?*anyopaque, c_int, [*c]const u8, c_int, c_int, c_int) callconv(.c) c_int) callconv(.c) c_int,
+};
+
+// FTS5 API v2 structure
+const fts5_tokenizer_v2 = extern struct {
+    iVersion: c_int,
+    xCreate: ?*const fn (?*anyopaque, [*c][*c]const u8, c_int, [*c]?*Fts5Tokenizer) callconv(.c) c_int,
+    xDelete: ?*const fn (?*Fts5Tokenizer) callconv(.c) void,
+    xTokenize: ?*const fn (?*Fts5Tokenizer, ?*anyopaque, c_int, [*c]const u8, c_int, [*c]const u8, c_int, ?*const fn (?*anyopaque, c_int, [*c]const u8, c_int, c_int, c_int) callconv(.c) c_int) callconv(.c) c_int,
 };
 ```
 
-### v2 API Structure (fts5_tokenizer_v2)
-```c
-typedef struct fts5_tokenizer_v2 fts5_tokenizer_v2;
-struct fts5_tokenizer_v2 {
-  int iVersion;             /* Currently always 2 */
-  int (*xCreate)(void*, const char **azArg, int nArg, Fts5Tokenizer **ppOut);
-  void (*xDelete)(Fts5Tokenizer*);
-  int (*xTokenize)(Fts5Tokenizer*, 
-      void *pCtx,
-      int flags,
-      const char *pText, int nText, 
-      const char *pLocale, int nLocale,  /* NEW in v2 */
-      int (*xToken)(
-        void *pCtx,
-        int tflags,
-        const char *pToken,
-        int nToken,
-        int iStart,
-        int iEnd
-      )
-  );
-};
+---
+
+## Tokenizer Functions
+
+### 1. `icuCreate`
+Initializes the tokenizer instance, parsing optional locale arguments or transliteration rules specified in the `CREATE VIRTUAL TABLE ... USING fts5(...)` statement.
+
+```zig
+fn icuCreate(
+    pCtx: ?*anyopaque,
+    azArg: [*c][*c]const u8,
+    nArg: c_int,
+    ppOut: [*c]?*Fts5Tokenizer,
+) callconv(.c) c_int
 ```
 
-The addition of the `pLocale` and `nLocale` parameters in the `xTokenize` method is the key enhancement that enables better internationalization support in the v2 API.
+### 2. `icuTokenize` (v2 API)
+Performs text tokenization using ICU word boundary iteration (`ubrk_open`, `ubrk_next`) and transliteration (`utrans_openU`, `utrans_transUChars`). Supports query-time locale overrides via `pLocale`.
 
-## Implementation Details
-
-### Single FTS5 v2 Implementation (fts5_icu.c)
-
-The project now uses a single implementation file that fully complies with the FTS5 v2 API:
-- Uses the `fts5_tokenizer_v2` structure with `iVersion` set to 2
-- Implements correct function signatures for all required functions
-- Properly handles locale-specific parameters in `xTokenize`
-- Uses the enhanced callback function signature
-
-### Simplified Build System
-
-The build system was simplified to compile a single implementation:
-- Single source file `src/fts5_icu.c` 
-- Single build target `fts5_icu`
-- Updated linking for the unified implementation
-
-## Key Features of Implementation
-
-1. **FTS5 v2 API Compliance**:
-   - Uses the `fts5_tokenizer_v2` structure with version field set to 2
-   - Implements the correct function signatures as specified in the FTS5 documentation
-   - Uses `xCreateTokenizer_v2` for registration
-
-2. **Proper Function Signatures**:
-   - `xCreate` function signature matches FTS5 requirements exactly
-   - `xTokenize` function includes all required parameters including locale support
-   - Callback function signature includes all required parameters
-
-3. **Enhanced Error Handling**:
-   - Proper version checking for FTS5 API availability
-   - Better error reporting for registration failures
-   - Proper handling of FTS5_TOKENIZE_* flags
-
-4. **Enhanced Functionality**:
-   - Proper locale support in tokenization
-   - Correct handling of FTS5 flags
-   - Better error reporting
-
-5. **Simplified Architecture**:
-   - Single implementation reduces maintenance overhead
-   - Clear and focused codebase
-   - Easier to understand and modify
-
-6. **Internationalization**:
-   - Full support for language-specific tokenization
-   - Enhanced multi-language text processing capabilities
-
-## Function Signatures
-
-All function signatures match FTS5 v2 requirements:
-
-#### xCreate Function
-```c
-static int icuCreate(
-  void *pCtx,
-  const char **azArg,
-  int nArg,
-  Fts5Tokenizer **ppOut
-)
+```zig
+fn icuTokenize(
+    pTok: ?*Fts5Tokenizer,
+    pCtx: ?*anyopaque,
+    flags: c_int,
+    pText: [*c]const u8,
+    nText: c_int,
+    pLocale: [*c]const u8,
+    nLocale: c_int,
+    xToken: ?*const fn (?*anyopaque, c_int, [*c]const u8, c_int, c_int, c_int) callconv(.c) c_int,
+) callconv(.c) c_int
 ```
 
-#### xTokenize Function
-```c
-static int icuTokenize(
-  Fts5Tokenizer *pTok,
-  void *pCtx,
-  int flags,            // FTS5_TOKENIZE_* flags
-  const char *pText, 
-  int nText,
-  const char *pLocale,  // Locale support
-  int nLocale,
-  int (*xToken)(
-    void *pCtx,
-    int tflags,         // FTS5_TOKEN_* flags
-    const char *pToken,
-    int nToken,
-    int iStart,
-    int iEnd
-  )
-)
+### 3. `icuDelete`
+Frees memory allocated for the tokenizer instance using Zig's allocator (`std.heap.c_allocator`).
+
+```zig
+fn icuDelete(pTok: ?*Fts5Tokenizer) callconv(.c) void
 ```
 
-### Updated Registration Process
+---
 
-The registration process uses the v2 API:
-```c
-fts5_tokenizer_v2 tokenizer = {
-  .iVersion = 2,
-  .xCreate = icuCreate,
-  .xDelete = icuDelete,
-  .xTokenize = icuTokenize
-};
+## Registration & Extension Entrypoint
 
-// Use the v2 registration method
-int rc = pFts5Api->xCreateTokenizer_v2(pFts5Api, TOKENIZER_NAME, NULL, &tokenizer, NULL);
+The SQLite extension entrypoint is exported as a C function. The build system controls whether v2 or v1 registration is selected based on build options:
+
+```zig
+pub export fn sqlite3_fts5icu_init(
+    db: ?*c.sqlite3,
+    pzErrMsg: [*c][*c]const u8,
+    pApi: [*c]const c.sqlite3_api_routines,
+) callconv(.c) c_int {
+    // Save SQLite API routines pointer
+    sqlite3_api = pApi;
+    
+    // Retrieve FTS5 API pointer
+    // Register tokenizer using xCreateTokenizer_v2 (API v2) or xCreateTokenizer (API v1)
+    // Register helper SQL functions like fts5_icu_version()
+}
 ```
 
-## Building the Implementation
+---
 
-The implementation is built automatically when you build the project. It creates:
-- Universal tokenizer library (fts5_icu.so)
-- Locale-specific tokenizer libraries (fts5_icu_[locale].so)
+## Building and Testing
 
-To build for a specific locale:
+### Building with Zig
 ```bash
-mkdir build
-cd build
-cmake .. -DLOCALE=ja
-cmake --build .
+# Build universal and all locale tokenizers (v2 API)
+zig build
+
+# Build specific locale
+zig build -Dlocale=ja
+
+# Build legacy v1 API version
+zig build -Dapi_version=v1
 ```
 
-## Testing the Implementation
-
-You can test the implementation using the provided SQL test scripts:
-
+### Running Tests
 ```bash
-# Build the project
-mkdir build && cd build && cmake .. && cmake --build .
+# Run SQLite test suite
+./scripts/test_all.sh
 
-# Test the implementation
-sqlite3 < tests/test_universal_legacy_with_th_zh.sql
+# Run Zig unit and integration tests
+zig build test
+zig build run-transliterator
+zig build run-locale-tests
 ```
-
-## Code Quality
-
-The project maintains code quality through formatting and linting tools:
-
-- **Code Formatting**: Use `./scripts/code-format.sh` to ensure consistent code style
-- **Static Analysis**: Use `./scripts/lint-check.sh` to detect potential issues
-
-The implementation provides better compliance with the FTS5 specification and is the recommended approach.

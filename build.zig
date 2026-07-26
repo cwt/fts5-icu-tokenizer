@@ -14,6 +14,7 @@ const icu_funcs = [_][]const u8{
     "u_strToUTF8",
     "utrans_openU",
     "utrans_close",
+    "utrans_clone",
     "utrans_transUChars",
 };
 

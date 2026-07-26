@@ -323,7 +323,7 @@ pub fn tokenizeText(
             continue;
         }
 
-        const reqBufSize = nSrc * 6 + 2048;
+        const reqBufSize = nSrc * 6 + 64;
         if (transBuf.len < reqBufSize) {
             if (heap_trans) |ht| {
                 heap_trans = try allocator.realloc(ht, reqBufSize);
@@ -368,7 +368,7 @@ pub fn tokenizeText(
 
         const validOutLen: usize = @intCast(@max(0, outLen));
 
-        const reqDestSize = validOutLen * 8 + 4096;
+        const reqDestSize = validOutLen * 4 + 64;
         if (destBuf.len < reqDestSize) {
             if (heap_dest) |hd| {
                 heap_dest = try allocator.realloc(hd, reqDestSize);
@@ -500,6 +500,21 @@ test "tokenizeText large text SBO fallback" {
     large_text[1500] = ' ';
 
     const rc = try tokenizeText(testing_allocator, tok, large_text, null, null, dummyTokenCallback);
+    try std.testing.expectEqual(@as(c_int, c.SQLITE_OK), rc);
+}
+
+test "tokenizeText small input zero heap allocations (SBO)" {
+    const testing_allocator = std.testing.allocator;
+
+    const tok = try IcuTokenizer.create(testing_allocator, "");
+    defer tok.destroy(testing_allocator);
+
+    const small_text = "Hello world! 日本語のテスト 1234";
+
+    // Pass failing_allocator to tokenizeText. If tokenizeText attempts any
+    // heap allocations for small input, failing_allocator will return error.OutOfMemory.
+    const failing_allocator = std.testing.failing_allocator;
+    const rc = try tokenizeText(failing_allocator, tok, small_text, null, null, dummyTokenCallback);
     try std.testing.expectEqual(@as(c_int, c.SQLITE_OK), rc);
 }
 

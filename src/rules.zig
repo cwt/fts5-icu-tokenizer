@@ -16,31 +16,26 @@ pub const ICU_RULE_DEFAULT = ICU_RULE_BASE ++ "Arabic-Latin; Cyrillic-Latin; Heb
 
 pub const LocaleInfo = struct {
     rules: []const u8,
-    suffix: []const u8,
     tokenizer_name: []const u8,
 };
 
 pub fn getLocaleInfo(locale: []const u8) LocaleInfo {
     if (locale.len >= 2) {
         const prefix = locale[0..2];
-        if (std.mem.eql(u8, prefix, "ja") or std.mem.eql(u8, prefix, "jp")) return .{ .rules = ICU_RULE_JA, .suffix = "_ja", .tokenizer_name = "icu_ja" };
-        if (std.mem.eql(u8, prefix, "zh") or std.mem.eql(u8, prefix, "cn")) return .{ .rules = ICU_RULE_ZH, .suffix = "_zh", .tokenizer_name = "icu_zh" };
-        if (std.mem.eql(u8, prefix, "th")) return .{ .rules = ICU_RULE_TH, .suffix = "_th", .tokenizer_name = "icu_th" };
-        if (std.mem.eql(u8, prefix, "ko") or std.mem.eql(u8, prefix, "kr")) return .{ .rules = ICU_RULE_KO, .suffix = "_ko", .tokenizer_name = "icu_ko" };
-        if (std.mem.eql(u8, prefix, "ar")) return .{ .rules = ICU_RULE_AR, .suffix = "_ar", .tokenizer_name = "icu_ar" };
-        if (std.mem.eql(u8, prefix, "ru")) return .{ .rules = ICU_RULE_RU, .suffix = "_ru", .tokenizer_name = "icu_ru" };
-        if (std.mem.eql(u8, prefix, "he") or std.mem.eql(u8, prefix, "iw")) return .{ .rules = ICU_RULE_HE, .suffix = "_he", .tokenizer_name = "icu_he" };
-        if (std.mem.eql(u8, prefix, "el") or std.mem.eql(u8, prefix, "gr")) return .{ .rules = ICU_RULE_EL, .suffix = "_el", .tokenizer_name = "icu_el" };
+        if (std.mem.eql(u8, prefix, "ja") or std.mem.eql(u8, prefix, "jp")) return .{ .rules = ICU_RULE_JA, .tokenizer_name = "icu_ja" };
+        if (std.mem.eql(u8, prefix, "zh") or std.mem.eql(u8, prefix, "cn")) return .{ .rules = ICU_RULE_ZH, .tokenizer_name = "icu_zh" };
+        if (std.mem.eql(u8, prefix, "th")) return .{ .rules = ICU_RULE_TH, .tokenizer_name = "icu_th" };
+        if (std.mem.eql(u8, prefix, "ko") or std.mem.eql(u8, prefix, "kr")) return .{ .rules = ICU_RULE_KO, .tokenizer_name = "icu_ko" };
+        if (std.mem.eql(u8, prefix, "ar")) return .{ .rules = ICU_RULE_AR, .tokenizer_name = "icu_ar" };
+        if (std.mem.eql(u8, prefix, "ru")) return .{ .rules = ICU_RULE_RU, .tokenizer_name = "icu_ru" };
+        if (std.mem.eql(u8, prefix, "he") or std.mem.eql(u8, prefix, "iw")) return .{ .rules = ICU_RULE_HE, .tokenizer_name = "icu_he" };
+        if (std.mem.eql(u8, prefix, "el") or std.mem.eql(u8, prefix, "gr")) return .{ .rules = ICU_RULE_EL, .tokenizer_name = "icu_el" };
     }
-    return .{ .rules = ICU_RULE_DEFAULT, .suffix = "", .tokenizer_name = "icu" };
+    return .{ .rules = ICU_RULE_DEFAULT, .tokenizer_name = "icu" };
 }
 
 pub fn getRulesForLocale(locale: []const u8) []const u8 {
     return getLocaleInfo(locale).rules;
-}
-
-pub fn getSuffixForLocale(locale: []const u8) []const u8 {
-    return getLocaleInfo(locale).suffix;
 }
 
 pub fn getTokenizerNameForLocale(locale: []const u8) []const u8 {
@@ -54,6 +49,5 @@ test "rules mapping" {
     
     const info_ja = getLocaleInfo("ja_JP");
     try std.testing.expectEqualStrings(ICU_RULE_JA, info_ja.rules);
-    try std.testing.expectEqualStrings("_ja", info_ja.suffix);
     try std.testing.expectEqualStrings("icu_ja", info_ja.tokenizer_name);
 }

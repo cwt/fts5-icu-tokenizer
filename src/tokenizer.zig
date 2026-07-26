@@ -309,6 +309,24 @@ pub fn tokenizeText(
         var limit: i32 = @intCast(copyLen);
         var outLen: i32 = @intCast(copyLen);
         icu.utrans_transUChars(pClonedTransliterator, transBuf.ptr, &outLen, @intCast(transBuf.len), 0, &limit, &status);
+        if (status == c.U_BUFFER_OVERFLOW_ERROR) {
+            // Transliteration expanded beyond the current buffer (bug #2): grow
+            // to the required length and retry, instead of silently dropping
+            // the token. `outLen` holds the length ICU needs.
+            const need: usize = @as(usize, @intCast(outLen)) + 64;
+            if (heap_trans) |ht| {
+                heap_trans = try allocator.realloc(ht, need);
+            } else {
+                heap_trans = try allocator.alloc(c.UChar, need);
+            }
+            transBuf = heap_trans.?;
+            @memcpy(transBuf[0..copyLen], utf16_text_buffer[start_idx .. start_idx + copyLen]);
+            transBuf[copyLen] = 0;
+            outLen = @intCast(copyLen);
+            limit = outLen;
+            status = c.U_ZERO_ERROR;
+            icu.utrans_transUChars(pClonedTransliterator, transBuf.ptr, &outLen, @intCast(transBuf.len), 0, &limit, &status);
+        }
         if (c.U_FAILURE(status)) {
             token_start = token_end;
             continue;
@@ -547,4 +565,41 @@ test "concurrent tokenizeText with transliteration (thread safety)" {
         t.* = try std.Thread.spawn(.{}, ThreadContext.worker, .{ThreadContext{ .tokenizer = tok }});
     }
     for (threads) |t| t.join();
+}
+
+// Bug #2: a token whose transliteration expands beyond the buffer must not be
+// silently dropped. The grow-on-overflow path is the fix; this regression test
+// ensures no token is lost under heavy transliteration with the universal
+// (Latinizing) rule set.
+test "tokenizeText transliteration preserves all tokens (bug #2 regression)" {
+    const gpa = std.testing.allocator;
+
+    const tok = try IcuTokenizer.create(gpa, "");
+    defer tok.destroy(gpa);
+
+    // Scripts the universal rule set Latinizes to pure ASCII: Cyrillic, Arabic,
+    // Greek, and Latin with diacritics. (CJK/Thai are intentionally excluded
+    // because the universal rules do not Latinize them.)
+    const text = "русский текст العربية Ελληνικά Français Español";
+
+    var cap: Capture = .{ .gpa = gpa, .tokens = .empty };
+    defer {
+        for (cap.tokens.items) |t| gpa.free(t);
+        cap.tokens.deinit(gpa);
+    }
+
+    const rc = try tokenizeText(gpa, tok, text, null, &cap, captureTokenCallback);
+    try std.testing.expectEqual(@as(c_int, c.SQLITE_OK), rc);
+
+    // Bug #2 guard: no token may be silently dropped. Verify representative
+    // transliterated tokens are present.
+    var found_russian = false;
+    var found_french = false;
+    for (cap.tokens.items) |t| {
+        if (std.mem.eql(u8, t, "russkij")) found_russian = true;
+        if (std.mem.eql(u8, t, "francais")) found_french = true;
+    }
+    try std.testing.expect(cap.tokens.items.len >= 6);
+    try std.testing.expect(found_russian);
+    try std.testing.expect(found_french);
 }

@@ -167,6 +167,19 @@ fn getFts5Api(db: *c.sqlite3, pApi: *const c.sqlite3_api_routines) ?*fts5_api {
     return pFts5Api;
 }
 
+var global_tokenizer_v2 = fts5_tokenizer_v2{
+    .iVersion = 2,
+    .xCreate = icuCreate,
+    .xDelete = icuDelete,
+    .xTokenize = icuTokenizeV2,
+};
+
+var global_tokenizer_v1 = fts5_tokenizer{
+    .xCreate = icuCreate,
+    .xDelete = icuDelete,
+    .xTokenize = icuTokenizeV1,
+};
+
 fn initExtensionForLocaleV2(
     db: *c.sqlite3,
     pzErrMsg: [*c][*c]u8,
@@ -195,18 +208,11 @@ fn initExtensionForLocaleV2(
         return c.SQLITE_ERROR;
     }
 
-    var tokenizer_v2 = fts5_tokenizer_v2{
-        .iVersion = 2,
-        .xCreate = icuCreate,
-        .xDelete = icuDelete,
-        .xTokenize = icuTokenizeV2,
-    };
-
     const tok_name = rules.getTokenizerNameForLocale(locale);
     const tok_name_c = std.heap.c_allocator.dupeZ(u8, tok_name) catch return c.SQLITE_NOMEM;
     defer std.heap.c_allocator.free(tok_name_c);
 
-    const rc = api.xCreateTokenizer_v2.?(api, tok_name_c.ptr, null, &tokenizer_v2, null);
+    const rc = api.xCreateTokenizer_v2.?(api, tok_name_c.ptr, null, &global_tokenizer_v2, null);
     if (rc != c.SQLITE_OK) {
         if (pApi.mprintf) |mprintf_fn| {
             const err_msg: [*c]const u8 = if (pApi.errstr) |errstr_fn| errstr_fn(rc) else "unknown error";
@@ -237,17 +243,12 @@ fn initExtensionForLocaleV1(
     }
 
     const api = pFts5Api.?;
-    var tokenizer_v1 = fts5_tokenizer{
-        .xCreate = icuCreate,
-        .xDelete = icuDelete,
-        .xTokenize = icuTokenizeV1,
-    };
 
     const tok_name = rules.getTokenizerNameForLocale(locale);
     const tok_name_c = std.heap.c_allocator.dupeZ(u8, tok_name) catch return c.SQLITE_NOMEM;
     defer std.heap.c_allocator.free(tok_name_c);
 
-    const rc = api.xCreateTokenizer.?(api, tok_name_c.ptr, null, &tokenizer_v1, null);
+    const rc = api.xCreateTokenizer.?(api, tok_name_c.ptr, null, &global_tokenizer_v1, null);
     if (rc != c.SQLITE_OK) {
         if (pApi.mprintf) |mprintf_fn| {
             const err_msg: [*c]const u8 = if (pApi.errstr) |errstr_fn| errstr_fn(rc) else "unknown error";

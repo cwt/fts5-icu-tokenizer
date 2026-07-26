@@ -4,6 +4,7 @@ const builtin = @import("builtin");
 const icu_funcs = [_][]const u8{
     "ubrk_open",
     "ubrk_close",
+    "ubrk_clone",
     "ubrk_setText",
     "ubrk_first",
     "ubrk_next",

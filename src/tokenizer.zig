@@ -73,6 +73,54 @@ pub fn utf8ToUtf16Alloc(allocator: std.mem.Allocator, text: []const u8) ![:0]c.U
     return buf;
 }
 
+pub fn transliterateString(allocator: std.mem.Allocator, input: []const u8, rule_str: []const u8) ![]u8 {
+    var status: c.UErrorCode = c.U_ZERO_ERROR;
+
+    const rules_u16 = try utf8ToUtf16Alloc(allocator, rule_str);
+    defer allocator.free(rules_u16);
+
+    const transliterator = icu.utrans_openU(rules_u16.ptr, -1, c.UTRANS_FORWARD, null, 0, null, &status);
+    if (c.U_FAILURE(status) or transliterator == null) {
+        return error.TransliteratorCreateFailed;
+    }
+    defer icu.utrans_close(transliterator);
+
+    const input_u16 = try utf8ToUtf16Alloc(allocator, input);
+    defer allocator.free(input_u16);
+
+    const capacity = input_u16.len * 3 + 64;
+    const output_u16 = try allocator.alloc(c.UChar, capacity);
+    defer allocator.free(output_u16);
+
+    @memcpy(output_u16[0..input_u16.len], input_u16);
+
+    var limit: i32 = @intCast(input_u16.len);
+    var out_len: i32 = @intCast(input_u16.len);
+    status = c.U_ZERO_ERROR;
+    icu.utrans_transUChars(transliterator, output_u16.ptr, &out_len, @intCast(capacity), 0, &limit, &status);
+    if (c.U_FAILURE(status)) {
+        return error.TransliterateFailed;
+    }
+
+    var utf8_len: i32 = 0;
+    status = c.U_ZERO_ERROR;
+    _ = icu.u_strToUTF8(null, 0, &utf8_len, output_u16.ptr, limit, &status);
+    if (status != c.U_BUFFER_OVERFLOW_ERROR and status != c.U_ZERO_ERROR) {
+        return error.Utf8LengthFailed;
+    }
+
+    status = c.U_ZERO_ERROR;
+    const utf8_output = try allocator.alloc(u8, @intCast(utf8_len));
+    errdefer allocator.free(utf8_output);
+
+    _ = icu.u_strToUTF8(utf8_output.ptr, utf8_len + 1, null, output_u16.ptr, limit, &status);
+    if (c.U_FAILURE(status)) {
+        return error.Utf8ConvertFailed;
+    }
+
+    return utf8_output;
+}
+
 pub fn tokenizeText(
     allocator: std.mem.Allocator,
     tokenizer: *IcuTokenizer,
@@ -83,20 +131,54 @@ pub fn tokenizeText(
 ) !c_int {
     if (text.len == 0) return c.SQLITE_OK;
 
-    // Buffer allocation for UTF-16 text and byte offset map
-    const utf16_buffer_size = text.len * 2 + 1;
-    const map_buffer_size = text.len * 2 + 2;
+    const STACK_CAP = 512;
+    const req_u16_cap = text.len + 1;
 
-    const utf16_text_buffer = try allocator.alloc(c.UChar, utf16_buffer_size);
-    defer allocator.free(utf16_text_buffer);
+    var stack_utf16: [STACK_CAP]c.UChar = undefined;
+    var stack_map: [STACK_CAP]i32 = undefined;
+    var stack_trans: [STACK_CAP * 2]c.UChar = undefined;
+    var stack_dest: [STACK_CAP * 4]u8 = undefined;
 
-    const byte_offset_map = try allocator.alloc(i32, map_buffer_size);
-    defer allocator.free(byte_offset_map);
+    var heap_utf16: ?[]c.UChar = null;
+    defer if (heap_utf16) |buf| allocator.free(buf);
+    const utf16_text_buffer = if (req_u16_cap <= STACK_CAP)
+        stack_utf16[0..req_u16_cap]
+    else blk: {
+        heap_utf16 = try allocator.alloc(c.UChar, req_u16_cap);
+        break :blk heap_utf16.?;
+    };
+
+    var heap_map: ?[]i32 = null;
+    defer if (heap_map) |buf| allocator.free(buf);
+    const byte_offset_map = if (req_u16_cap <= STACK_CAP)
+        stack_map[0..req_u16_cap]
+    else blk: {
+        heap_map = try allocator.alloc(i32, req_u16_cap);
+        break :blk heap_map.?;
+    };
+
+    var heap_trans: ?[]c.UChar = null;
+    defer if (heap_trans) |buf| allocator.free(buf);
+    var transBuf: []c.UChar = if (req_u16_cap <= STACK_CAP)
+        stack_trans[0..]
+    else blk: {
+        heap_trans = try allocator.alloc(c.UChar, 2048);
+        break :blk heap_trans.?;
+    };
+
+    var heap_dest: ?[]u8 = null;
+    defer if (heap_dest) |buf| allocator.free(buf);
+    var destBuf: []u8 = if (req_u16_cap <= STACK_CAP)
+        stack_dest[0..]
+    else blk: {
+        heap_dest = try allocator.alloc(u8, 4096);
+        break :blk heap_dest.?;
+    };
 
     // Convert UTF-8 to UTF-16 with byte offset mapping
     var utf16_pos: usize = 0;
     var utf8_pos: usize = 0;
-    while (utf8_pos < text.len and utf16_pos < utf16_buffer_size) {
+    while (utf8_pos < text.len and utf16_pos < utf16_text_buffer.len) {
         const orig_utf8 = utf8_pos;
         const cp_len = std.unicode.utf8ByteSequenceLength(text[utf8_pos]) catch 1;
         const end = @min(utf8_pos + cp_len, text.len);
@@ -108,24 +190,24 @@ pub fn tokenizeText(
             utf16_text_buffer[utf16_pos] = @intCast(cp);
             utf16_pos += 1;
         } else {
-            if (utf16_pos + 2 > utf16_buffer_size) break;
+            if (utf16_pos + 2 > utf16_text_buffer.len) break;
             utf16_text_buffer[utf16_pos] = @intCast(0xD800 + ((cp - 0x10000) >> 10));
             utf16_text_buffer[utf16_pos + 1] = @intCast(0xDC00 + ((cp - 0x10000) & 0x3FF));
             utf16_pos += 2;
         }
 
-        if (orig_utf16 < map_buffer_size) {
+        if (orig_utf16 < byte_offset_map.len) {
             byte_offset_map[orig_utf16] = @intCast(orig_utf8);
         }
-        if (cp > 0xFFFF and orig_utf16 + 1 < map_buffer_size) {
+        if (cp > 0xFFFF and orig_utf16 + 1 < byte_offset_map.len) {
             byte_offset_map[orig_utf16 + 1] = @intCast(orig_utf8);
         }
     }
-    if (utf16_pos < map_buffer_size) {
+    if (utf16_pos < byte_offset_map.len) {
         byte_offset_map[utf16_pos] = @intCast(text.len);
     }
 
-    var pBreakIterator = tokenizer.pBreakIterator.?;
+    var baseBreakIterator = tokenizer.pBreakIterator.?;
     var pTransliterator = tokenizer.pTransliterator.?;
 
     var dynBreak: ?*c.UBreakIterator = null;
@@ -154,20 +236,20 @@ pub fn tokenizeText(
             if (c.U_FAILURE(status) or dynTrans == null) {
                 return c.SQLITE_ERROR;
             }
-            pBreakIterator = dynBreak.?;
+            baseBreakIterator = dynBreak.?;
             pTransliterator = dynTrans.?;
         }
     }
 
+    // Thread Safety: Clone break iterator for concurrent execution safety
+    var clone_status: c.UErrorCode = c.U_ZERO_ERROR;
+    const pBreakIterator = icu.ubrk_clone(baseBreakIterator, &clone_status);
+    if (c.U_FAILURE(clone_status) or pBreakIterator == null) return c.SQLITE_ERROR;
+    defer icu.ubrk_close(pBreakIterator);
+
     var status: c.UErrorCode = c.U_ZERO_ERROR;
     icu.ubrk_setText(pBreakIterator, utf16_text_buffer.ptr, @intCast(utf16_pos), &status);
     if (c.U_FAILURE(status)) return c.SQLITE_ERROR;
-
-    var transBuf = try allocator.alloc(c.UChar, 2048);
-    defer allocator.free(transBuf);
-
-    var destBuf = try allocator.alloc(u8, 4096);
-    defer allocator.free(destBuf);
 
     var token_start = icu.ubrk_first(pBreakIterator);
     while (true) {
@@ -201,7 +283,13 @@ pub fn tokenizeText(
 
         const reqBufSize = nSrc * 6 + 2048;
         if (transBuf.len < reqBufSize) {
-            transBuf = try allocator.realloc(transBuf, reqBufSize);
+            if (heap_trans) |ht| {
+                heap_trans = try allocator.realloc(ht, reqBufSize);
+                transBuf = heap_trans.?;
+            } else {
+                heap_trans = try allocator.alloc(c.UChar, reqBufSize);
+                transBuf = heap_trans.?;
+            }
         }
 
         const copyLen = @min(nSrc, transBuf.len - 1);
@@ -222,7 +310,13 @@ pub fn tokenizeText(
 
         const reqDestSize = validOutLen * 8 + 4096;
         if (destBuf.len < reqDestSize) {
-            destBuf = try allocator.realloc(destBuf, reqDestSize);
+            if (heap_dest) |hd| {
+                heap_dest = try allocator.realloc(hd, reqDestSize);
+                destBuf = heap_dest.?;
+            } else {
+                heap_dest = try allocator.alloc(u8, reqDestSize);
+                destBuf = heap_dest.?;
+            }
         }
 
         var utf8Len: i32 = 0;
@@ -231,7 +325,13 @@ pub fn tokenizeText(
 
         if (status == c.U_BUFFER_OVERFLOW_ERROR or (c.U_FAILURE(status) and utf8Len > @as(i32, @intCast(destBuf.len)))) {
             const newDestSize: usize = @intCast(utf8Len + 64);
-            destBuf = try allocator.realloc(destBuf, newDestSize);
+            if (heap_dest) |hd| {
+                heap_dest = try allocator.realloc(hd, newDestSize);
+                destBuf = heap_dest.?;
+            } else {
+                heap_dest = try allocator.alloc(u8, newDestSize);
+                destBuf = heap_dest.?;
+            }
             utf8Len = 0;
             status = c.U_ZERO_ERROR;
             _ = icu.u_strToUTF8WithSub(destBuf.ptr, @intCast(destBuf.len), &utf8Len, transBuf.ptr, @intCast(validOutLen), 0xFFFD, null, &status);
@@ -300,3 +400,65 @@ test "tokenizeText memory safety and override_locale" {
     try std.testing.expectEqual(@as(c_int, c.SQLITE_OK), rc);
 }
 
+test "tokenizeText large text SBO fallback" {
+    const testing_allocator = std.testing.allocator;
+
+    const tok = try IcuTokenizer.create(testing_allocator, "");
+    defer tok.destroy(testing_allocator);
+
+    // Generate string larger than 512 bytes
+    var large_text = try testing_allocator.alloc(u8, 2048);
+    defer testing_allocator.free(large_text);
+    @memset(large_text, 'a');
+    large_text[100] = ' ';
+    large_text[500] = ' ';
+    large_text[1000] = ' ';
+    large_text[1500] = ' ';
+
+    const rc = try tokenizeText(testing_allocator, tok, large_text, null, null, dummyTokenCallback);
+    try std.testing.expectEqual(@as(c_int, c.SQLITE_OK), rc);
+}
+
+test "tokenizeText malformed UTF-8 and emoji safety" {
+    const testing_allocator = std.testing.allocator;
+
+    const tok = try IcuTokenizer.create(testing_allocator, "");
+    defer tok.destroy(testing_allocator);
+
+    const text_emoji = "Hello 🌍 World! 😀 🎉 🦺";
+    const rc1 = try tokenizeText(testing_allocator, tok, text_emoji, null, null, dummyTokenCallback);
+    try std.testing.expectEqual(@as(c_int, c.SQLITE_OK), rc1);
+
+    const text_invalid = "Hello \xFF\xFE World!";
+    const rc2 = try tokenizeText(testing_allocator, tok, text_invalid, null, null, dummyTokenCallback);
+    try std.testing.expectEqual(@as(c_int, c.SQLITE_OK), rc2);
+}
+
+test "concurrent multi-threaded tokenizeText thread safety" {
+    const testing_allocator = std.testing.allocator;
+
+    const tok = try IcuTokenizer.create(testing_allocator, "ja");
+    defer tok.destroy(testing_allocator);
+
+    const ThreadContext = struct {
+        tokenizer: *IcuTokenizer,
+        text: []const u8,
+        fn worker(self: @This()) void {
+            const rc = tokenizeText(std.heap.c_allocator, self.tokenizer, self.text, null, null, dummyTokenCallback) catch c.SQLITE_ERROR;
+            std.testing.expectEqual(@as(c_int, c.SQLITE_OK), rc) catch {};
+        }
+    };
+
+    var threads: [8]std.Thread = undefined;
+    for (&threads, 0..) |*t, i| {
+        const text = if (i % 2 == 0) "日本語のテスト text" else "English text and 日本語";
+        t.* = try std.Thread.spawn(.{}, ThreadContext.worker, .{ThreadContext{
+            .tokenizer = tok,
+            .text = text,
+        }});
+    }
+
+    for (threads) |t| {
+        t.join();
+    }
+}

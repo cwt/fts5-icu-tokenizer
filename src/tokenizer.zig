@@ -52,25 +52,9 @@ pub const IcuTokenizer = struct {
 };
 
 pub fn utf8ToUtf16Alloc(allocator: std.mem.Allocator, text: []const u8) ![:0]c.UChar {
-    if (text.len == 0) {
-        const buf = try allocator.allocSentinel(c.UChar, 0, 0);
-        return buf;
-    }
-    var status: c.UErrorCode = c.U_ZERO_ERROR;
-    var len: i32 = 0;
-    _ = icu.u_strFromUTF8(null, 0, &len, text.ptr, @intCast(text.len), &status);
-    if (status != c.U_BUFFER_OVERFLOW_ERROR and status != c.U_ZERO_ERROR) {
-        return error.UCharConversionFailed;
-    }
-    status = c.U_ZERO_ERROR;
-    const ulen: usize = @intCast(len);
-    const buf = try allocator.allocSentinel(c.UChar, ulen, 0);
-    errdefer allocator.free(buf);
-    _ = icu.u_strFromUTF8(buf.ptr, @intCast(ulen + 1), null, text.ptr, @intCast(text.len), &status);
-    if (c.U_FAILURE(status)) {
-        return error.UCharConversionFailed;
-    }
-    return buf;
+    // Use the std UTF-8 -> UTF-16 converter (bug #7). utf8ToUtf16LeAllocZ
+    // returns [:0]u16, identical to [:0]c.UChar, so every caller is unchanged.
+    return std.unicode.utf8ToUtf16LeAllocZ(allocator, text);
 }
 
 pub fn transliterateString(allocator: std.mem.Allocator, input: []const u8, rule_str: []const u8) ![]u8 {
@@ -436,6 +420,16 @@ test "utf8ToUtf16Alloc memory safety" {
     const u16_hello = try utf8ToUtf16Alloc(testing_allocator, "hello");
     defer testing_allocator.free(u16_hello);
     try std.testing.expectEqual(@as(usize, 5), u16_hello.len);
+}
+
+test "utf8ToUtf16Alloc uses std converter for non-ASCII (bug #7)" {
+    const testing_allocator = std.testing.allocator;
+
+    // 日本語 = 3 BMP codepoints -> 3 UTF-16 units (verifies the std converter
+    // path, not the old ICU u_strFromUTF8 probe).
+    const u16buf = try utf8ToUtf16Alloc(testing_allocator, "日本語");
+    defer testing_allocator.free(u16buf);
+    try std.testing.expectEqual(@as(usize, 3), u16buf.len);
 }
 
 test "transliterateString grows buffer instead of erroring (bug #3)" {

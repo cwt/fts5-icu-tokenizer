@@ -9,6 +9,7 @@
 #define SQLITE_EXTENSION_INIT1
 #include "sqlite3ext.h"
 
+#define U_DISABLE_RENAMING 1
 #include <unicode/utypes.h>
 #include <unicode/ustring.h>
 #include <unicode/ubrk.h>

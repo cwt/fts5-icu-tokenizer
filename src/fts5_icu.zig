@@ -6,6 +6,29 @@ const tokenizer = @import("tokenizer.zig");
 
 pub const VERSION = build_options.version;
 
+const Fts5Tokenizer = opaque {};
+
+const fts5_tokenizer = extern struct {
+    xCreate: ?*const fn (?*anyopaque, [*c][*c]const u8, c_int, [*c]?*Fts5Tokenizer) callconv(.c) c_int,
+    xDelete: ?*const fn (?*Fts5Tokenizer) callconv(.c) void,
+    xTokenize: ?*const fn (?*Fts5Tokenizer, ?*anyopaque, c_int, [*c]const u8, c_int, ?*const fn (?*anyopaque, c_int, [*c]const u8, c_int, c_int, c_int) callconv(.c) c_int) callconv(.c) c_int,
+};
+
+const fts5_tokenizer_v2 = extern struct {
+    iVersion: c_int,
+    xCreate: ?*const fn (?*anyopaque, [*c][*c]const u8, c_int, [*c]?*Fts5Tokenizer) callconv(.c) c_int,
+    xDelete: ?*const fn (?*Fts5Tokenizer) callconv(.c) void,
+    xTokenize: ?*const fn (?*Fts5Tokenizer, ?*anyopaque, c_int, [*c]const u8, c_int, [*c]const u8, c_int, ?*const fn (?*anyopaque, c_int, [*c]const u8, c_int, c_int, c_int) callconv(.c) c_int) callconv(.c) c_int,
+};
+
+const fts5_api = extern struct {
+    iVersion: c_int,
+    xCreateTokenizer: ?*const fn (?*fts5_api, [*c]const u8, ?*anyopaque, *fts5_tokenizer, ?*const fn (?*anyopaque) callconv(.c) void) callconv(.c) c_int,
+    xFindTokenizer: ?*const fn (?*fts5_api, [*c]const u8, [*c]?*anyopaque, *fts5_tokenizer) callconv(.c) c_int,
+    xCreateTokenizer_v2: ?*const fn (?*fts5_api, [*c]const u8, ?*anyopaque, *fts5_tokenizer_v2, ?*const fn (?*anyopaque) callconv(.c) void) callconv(.c) c_int,
+    xFindTokenizer_v2: ?*const fn (?*fts5_api, [*c]const u8, [*c]?*anyopaque, *fts5_tokenizer_v2) callconv(.c) c_int,
+};
+
 pub export var sqlite3_api: [*c]const c.sqlite3_api_routines = null;
 
 pub export fn fts5_icu_version() callconv(.c) [*c]const u8 {
@@ -31,7 +54,7 @@ fn icuCreate(
     pCtx: ?*anyopaque,
     azArg: [*c][*c]const u8,
     nArg: c_int,
-    ppOut: [*c]?*c.Fts5Tokenizer,
+    ppOut: [*c]?*Fts5Tokenizer,
 ) callconv(.c) c_int {
     _ = pCtx;
     var locale: []const u8 = build_options.locale;
@@ -48,7 +71,7 @@ fn icuCreate(
 }
 
 // FTS5 callback: xDelete (common for v1 & v2)
-fn icuDelete(pTok: ?*c.Fts5Tokenizer) callconv(.c) void {
+fn icuDelete(pTok: ?*Fts5Tokenizer) callconv(.c) void {
     if (pTok) |pt| {
         const tok: *tokenizer.IcuTokenizer = @ptrCast(@alignCast(pt));
         tok.destroy(std.heap.c_allocator);
@@ -57,7 +80,7 @@ fn icuDelete(pTok: ?*c.Fts5Tokenizer) callconv(.c) void {
 
 // FTS5 v2 callback: xTokenize
 fn icuTokenizeV2(
-    pTok: ?*c.Fts5Tokenizer,
+    pTok: ?*Fts5Tokenizer,
     pCtx: ?*anyopaque,
     flags: c_int,
     pText: [*c]const u8,
@@ -91,7 +114,7 @@ fn icuTokenizeV2(
 
 // FTS5 v1 (legacy) callback: xTokenize
 fn icuTokenizeV1(
-    pTok: ?*c.Fts5Tokenizer,
+    pTok: ?*Fts5Tokenizer,
     pCtx: ?*anyopaque,
     flags: c_int,
     pText: [*c]const u8,
@@ -116,8 +139,8 @@ fn icuTokenizeV1(
     ) catch c.SQLITE_ERROR;
 }
 
-fn getFts5Api(db: *c.sqlite3, pApi: *const c.sqlite3_api_routines) ?*c.fts5_api {
-    var pFts5Api: ?*c.fts5_api = null;
+fn getFts5Api(db: *c.sqlite3, pApi: *const c.sqlite3_api_routines) ?*fts5_api {
+    var pFts5Api: ?*fts5_api = null;
     var pStmt: ?*c.sqlite3_stmt = null;
     if (pApi.prepare_v2) |prep_fn| {
         if (prep_fn(db, "SELECT fts5(?)", -1, &pStmt, null) == c.SQLITE_OK) {
@@ -163,7 +186,7 @@ fn initExtensionForLocaleV2(
         return c.SQLITE_ERROR;
     }
 
-    var tokenizer_v2 = c.fts5_tokenizer_v2{
+    var tokenizer_v2 = fts5_tokenizer_v2{
         .iVersion = 2,
         .xCreate = icuCreate,
         .xDelete = icuDelete,
@@ -205,7 +228,7 @@ fn initExtensionForLocaleV1(
     }
 
     const api = pFts5Api.?;
-    var tokenizer_v1 = c.fts5_tokenizer{
+    var tokenizer_v1 = fts5_tokenizer{
         .xCreate = icuCreate,
         .xDelete = icuDelete,
         .xTokenize = icuTokenizeV1,
@@ -382,5 +405,5 @@ pub export fn sqlite3_ftsicuellegacy_init(db: ?*c.sqlite3, pzErrMsg: [*c][*c]u8,
 }
 
 test "version string" {
-    try std.testing.expectEqualStrings("6.0.1", VERSION);
+    try std.testing.expectEqualStrings("6.0.2", VERSION);
 }

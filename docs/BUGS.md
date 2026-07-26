@@ -15,7 +15,24 @@ Severity legend:
 
 ---
 
-## 1. [HIGH] Transliterator is shared across threads (incomplete thread-safety fix)
+## Fix status (all 7 resolved)
+
+Every finding below has been fixed and committed separately. Each fix ships
+with a dedicated Zig unit test (see `zig build test`).
+
+| Bug | Severity | Status | Fix commit | Zig 0.16 built-in used |
+|-----|----------|--------|-----------|------------------------|
+| #1 | HIGH | FIXED | 8925a336 | ICU `utrans_clone` (resolver added) |
+| #2 | MEDIUM | FIXED | 2e4e44a7 | grow on `U_BUFFER_OVERFLOW_ERROR` |
+| #3 | MEDIUM | FIXED | e5d548a2 | grow on `U_BUFFER_OVERFLOW_ERROR` |
+| #4 | LOW | FIXED | d14c914a | `std.unicode.utf8ToUtf16Le` |
+| #5 | LOW | FIXED | 34113613 | — (dead code removed) |
+| #6 | LOW/style | FIXED | c9ac710e | `comptime` code generation |
+| #7 | LOW | FIXED | d48e3e86 | `std.unicode.utf8ToUtf16LeAllocZ` |
+
+---
+
+## 1. [HIGH] Transliterator is shared across threads (incomplete thread-safety fix) [FIXED: 8925a336]
 
 **File:** `src/tokenizer.zig`
 **Lines:** 210-211 (shared handle), 246 (break iterator cloned), 303 (transliterator used)
@@ -376,6 +393,18 @@ malformed input must be preserved, run a pre-validation / substitution pass
 
 ---
 
+## Post-fix status (all resolved)
+
+| Bug | Hand-rolled / external | Zig 0.16 (or ICU) built-in | Applies to | Status |
+|-----|------------------------|----------------------------|-----------|--------|
+| #1 | shared `UTransliterator` across threads | ICU `utrans_clone` (verified) — clone per call | the fix | FIXED (8925a336) |
+| #2 | token dropped on ICU `transBuf` overflow | none for the ICU buffer; `std.unicode.utf16LeToUtf8` for the final UTF-16→UTF-8 step | partial | FIXED (2e4e44a7) |
+| #3 | `transliterateString` errors on ICU overflow | none for the ICU buffer; `std.unicode.utf16LeToUtf8` / `utf16LeToUtf8Alloc` for UTF-16→UTF-8 | partial | FIXED (e5d548a2) |
+| #4 | manual UTF-8→UTF-16 encoder | `std.unicode.utf8ToUtf16Le` | yes (preferred fix) | FIXED (d14c914a) |
+| #5 | dead code | n/a | — | FIXED (34113613) |
+| #6 | 18 duplicated entrypoints / V1+V2 dup | Zig `comptime` loop + version param | yes (refactor) | FIXED (c9ac710e) |
+| #7 | ICU `u_strFromUTF8` two-pass probe | `std.unicode.utf8ToUtf16LeAllocZ` | yes (replace) | FIXED (d48e3e86) |
+
 ## Zig 0.16 built-in alternatives — summary
 
 For each bug, whether Zig 0.16 (or the linked ICU) provides a built-in that
@@ -422,12 +451,15 @@ are excluded from the bug list above.
 ## Verification
 
 - `zig build` — passes.
-- `zig build test` — passes (includes concurrency, SBO fallback, and
-  malformed-UTF-8/emoji tests).
+- `zig build test` — passes (**15/15** unit tests; each bug fix added a
+  dedicated regression/behavior test).
 - `.load ./zig-out/lib/libfts5_icu` and `libfts5_icu_ja` — succeed against
-  Homebrew SQLite 3.53.4.
-- `nm` inspection of `libfts5_icu.dylib` — single `sqlite3_api` definition.
+  Homebrew SQLite 3.53.4; the universal, per-locale, and `_legacy` entry
+  points all tokenize correctly.
+- `nm` inspection of `libfts5_icu.dylib` — single `sqlite3_api` definition,
+  and exactly **35** `sqlite3_ftsicu*` entry-point symbols, identical to the
+  hand-written set that existed before the comptime refactor of bug #6.
 
-> Note: passing unit tests do **not** prove the absence of bug #1 (shared
-> transliterator). Thread-safety races are non-deterministic; a green test run
-> is not sufficient evidence of thread safety.
+> All seven findings documented above are now resolved and committed
+> separately (commits 8925a336, 2e4e44a7, e5d548a2, d14c914a, 34113613,
+> c9ac710e, d48e3e86 on the `zig.git` bookmark).

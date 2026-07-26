@@ -28,7 +28,7 @@ This project was originally written in C with CMake. The rewrite to **Zig 0.16.0
 
 ### 5. Pure Zig C-Interop — No C Wrappers Needed
 - **Old C Problem**: Calling ICU functions from C required a separate `icu_helper.c` file with thin wrapper functions to avoid symbol conflicts.
-- **Zig Solution**: Zig's `addTranslateC` (`build.zig`) directly translates ICU and SQLite C headers into Zig `extern` declarations at build time. The Zig code calls ICU functions directly (`c.ubrk_open`, `c.utrans_openU`, `c.u_strFromUTF8`) via the `c` module — no intermediate C wrapper file, no `@cImport`. The entire codebase is pure Zig.
+- **Zig Solution**: Zig's `addTranslateC` (`build.zig`) directly translates ICU and SQLite C headers into Zig `extern` declarations at build time. The Zig code calls ICU functions directly (`c.ubrk_open`, `c.utrans_openU`, `c.u_strToUTF8WithSub`) via the `c` module — no intermediate C wrapper file, no `@cImport`. The entire codebase is pure Zig.
 
 ---
 

@@ -247,6 +247,14 @@ pub fn tokenizeText(
     if (c.U_FAILURE(clone_status) or pBreakIterator == null) return c.SQLITE_ERROR;
     defer icu.ubrk_close(pBreakIterator);
 
+    // Thread Safety: also clone the transliterator. UTransliterator is not
+    // thread-safe, so the shared handle owned by IcuTokenizer must not be used
+    // concurrently. Clone it per call, mirroring the break-iterator clone above.
+    var trans_clone_status: c.UErrorCode = c.U_ZERO_ERROR;
+    const pClonedTransliterator = icu.utrans_clone(pTransliterator, &trans_clone_status);
+    if (c.U_FAILURE(trans_clone_status) or pClonedTransliterator == null) return c.SQLITE_ERROR;
+    defer icu.utrans_close(pClonedTransliterator);
+
     var status: c.UErrorCode = c.U_ZERO_ERROR;
     icu.ubrk_setText(pBreakIterator, utf16_text_buffer.ptr, @intCast(utf16_pos), &status);
     if (c.U_FAILURE(status)) return c.SQLITE_ERROR;
@@ -300,7 +308,7 @@ pub fn tokenizeText(
         status = c.U_ZERO_ERROR;
         var limit: i32 = @intCast(copyLen);
         var outLen: i32 = @intCast(copyLen);
-        icu.utrans_transUChars(pTransliterator, transBuf.ptr, &outLen, @intCast(transBuf.len), 0, &limit, &status);
+        icu.utrans_transUChars(pClonedTransliterator, transBuf.ptr, &outLen, @intCast(transBuf.len), 0, &limit, &status);
         if (c.U_FAILURE(status)) {
             token_start = token_end;
             continue;
@@ -461,4 +469,82 @@ test "concurrent multi-threaded tokenizeText thread safety" {
     for (threads) |t| {
         t.join();
     }
+}
+
+const Capture = struct {
+    gpa: std.mem.Allocator,
+    tokens: std.ArrayList([]const u8),
+};
+
+fn captureTokenCallback(
+    pCtx: ?*anyopaque,
+    flags: c_int,
+    pToken: [*c]const u8,
+    nToken: c_int,
+    iStart: c_int,
+    iEnd: c_int,
+) callconv(.c) c_int {
+    _ = flags;
+    _ = iStart;
+    _ = iEnd;
+    const cap: *Capture = @ptrCast(@alignCast(pCtx.?));
+    const owned = cap.gpa.dupe(u8, pToken[0..@intCast(nToken)]) catch return c.SQLITE_NOMEM;
+    cap.tokens.append(cap.gpa, owned) catch {
+        cap.gpa.free(owned);
+        return c.SQLITE_NOMEM;
+    };
+    return c.SQLITE_OK;
+}
+
+// Bug #1: the shared UTransliterator must be cloned per tokenizeText call, not
+// used concurrently. This test verifies the transliteration actually runs (via
+// the clone) by checking that Cyrillic input becomes pure-ASCII Latin tokens.
+test "transliterator clone correctness (ru transliteration)" {
+    const gpa = std.testing.allocator;
+
+    const tok = try IcuTokenizer.create(gpa, "ru");
+    defer tok.destroy(gpa);
+
+    var cap: Capture = .{ .gpa = gpa, .tokens = .empty };
+    defer {
+        for (cap.tokens.items) |t| gpa.free(t);
+        cap.tokens.deinit(gpa);
+    }
+
+    const rc = try tokenizeText(gpa, tok, "русский текст", null, &cap, captureTokenCallback);
+    try std.testing.expectEqual(@as(c_int, c.SQLITE_OK), rc);
+    try std.testing.expect(cap.tokens.items.len > 0);
+    for (cap.tokens.items) |t| {
+        for (t) |b| try std.testing.expect(b < 0x80);
+    }
+}
+
+// Bug #1: concurrent use of a single shared tokenizer while transliterating.
+// The transliterator is cloned per call, so this must not race/corrupt.
+test "concurrent tokenizeText with transliteration (thread safety)" {
+    const gpa = std.testing.allocator;
+
+    const tok = try IcuTokenizer.create(gpa, "ru");
+    defer tok.destroy(gpa);
+
+    const ThreadContext = struct {
+        tokenizer: *IcuTokenizer,
+        fn worker(self: @This()) void {
+            const rc = tokenizeText(
+                std.heap.c_allocator,
+                self.tokenizer,
+                "русский текст пример",
+                null,
+                null,
+                dummyTokenCallback,
+            ) catch c.SQLITE_ERROR;
+            std.testing.expectEqual(@as(c_int, c.SQLITE_OK), rc) catch {};
+        }
+    };
+
+    var threads: [8]std.Thread = undefined;
+    for (&threads) |*t| {
+        t.* = try std.Thread.spawn(.{}, ThreadContext.worker, .{ThreadContext{ .tokenizer = tok }});
+    }
+    for (threads) |t| t.join();
 }

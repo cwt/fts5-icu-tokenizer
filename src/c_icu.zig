@@ -12,4 +12,5 @@ pub const u_strToUTF8WithSub = if (@hasDecl(c, "u_strToUTF8WithSub")) c.u_strToU
 pub const u_strToUTF8 = if (@hasDecl(c, "u_strToUTF8")) c.u_strToUTF8 else if (@hasDecl(c, "u_strToUTF8_77")) c.u_strToUTF8_77 else @field(c, "u_strToUTF8");
 pub const utrans_openU = if (@hasDecl(c, "utrans_openU")) c.utrans_openU else if (@hasDecl(c, "utrans_openU_77")) c.utrans_openU_77 else @field(c, "utrans_openU");
 pub const utrans_close = if (@hasDecl(c, "utrans_close")) c.utrans_close else if (@hasDecl(c, "utrans_close_77")) c.utrans_close_77 else @field(c, "utrans_close");
+pub const utrans_clone = if (@hasDecl(c, "utrans_clone")) c.utrans_clone else if (@hasDecl(c, "utrans_clone_77")) c.utrans_clone_77 else @field(c, "utrans_clone");
 pub const utrans_transUChars = if (@hasDecl(c, "utrans_transUChars")) c.utrans_transUChars else if (@hasDecl(c, "utrans_transUChars_77")) c.utrans_transUChars_77 else @field(c, "utrans_transUChars");

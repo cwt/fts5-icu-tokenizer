@@ -40,7 +40,7 @@ This project was originally written in C with CMake. The rewrite to **Zig 0.16.0
 
 ### 8. Thread Safety by Design — Clone per Call
 - **Old C Problem**: ICU handles (`UBreakIterator`, `UTransliterator`) are not thread-safe. Sharing them across FTS5 queries required either global locks or careful per-thread management, both easy to get wrong under load.
-- **Zig Solution**: Every `tokenizeText()` call clones both ICU handles before use. There is no shared mutable state — each thread gets its own isolated copy. This makes the extension safe for concurrent FTS5 queries without locks, waits, or subtle data-race bugs. The pattern is verified by multi-threaded unit tests.
+- **Zig Solution**: Every `tokenizeText()` call isolates ICU handles before use. On ICU >= 69 the fast `ubrk_clone` path copies the handle; on older ICU (e.g. EL9 / ICU 67) a fresh `ubrk_open` is used as a fallback. There is no shared mutable state — each thread gets its own isolated copy. This makes the extension safe for concurrent FTS5 queries without locks, waits, or subtle data-race bugs. The pattern is verified by multi-threaded unit tests.
 
 ### 9. Stack-Buffer Optimization for Small Inputs
 - **Old C Problem**: Every tokenization request, even for short strings, triggered heap allocation for UTF-16 conversion buffers, byte-offset maps, and transliteration scratch space. This added malloc/free overhead to every `MATCH` operation.
@@ -69,11 +69,13 @@ This project was originally written in C with CMake. The rewrite to **Zig 0.16.0
 - **SQLite3** development libraries
 - **ICU** development libraries (`libicu-uc`, `libicu-i18n`)
 
-| Platform | Dependencies |
-|----------|--------------|
-| macOS | `brew install zig sqlite icu4c` |
-| Debian / Ubuntu | `apt install libsqlite3-dev libicu-dev` + Zig 0.16.0 |
-| RHEL / Fedora | `dnf install sqlite-devel libicu-devel` + Zig 0.16.0 |
+| Platform | Dependencies | Notes |
+|----------|--------------|-------|
+| macOS | `brew install zig sqlite icu4c` | |
+| Debian / Ubuntu | `apt install libsqlite3-dev libicu-dev` + Zig 0.16.0 | |
+| Fedora 44+ | `dnf install sqlite-devel libicu-devel gcc zig` | Zig 0.16.0 in repos, no extra download |
+| AlmaLinux 10 (RHEL 10) | `dnf install sqlite-devel libicu-devel gcc wget xz` + [Zig 0.16.0](https://ziglang.org/download/) | ICU 74, SQLite 3.46.1 (FTS5 API v1 only; v2 requires SQLite >= 3.47) |
+| AlmaLinux 9 (RHEL 9) | `dnf install sqlite-devel libicu-devel gcc wget xz` + [Zig 0.16.0](https://ziglang.org/download/) | ICU 67 (`ubrk_clone` missing; uses `ubrk_open` fallback), SQLite 3.34.1 (FTS5 API v1 only) |
 
 ---
 
@@ -110,6 +112,24 @@ zig build run-tokenizer-test
 
 # Run full SQL test suite
 ./scripts/test_all.sh
+```
+
+### Containerized Builds
+
+Pre-built container images for CI or offline builds:
+
+```bash
+# Fedora 44 (Zig 0.16.0 from repos)
+podman build -f .container/Containerfile -t fts5-icu:f44 .
+
+# AlmaLinux 10 (RHEL 10 compatible)
+podman build -f .container/Containerfile.el10 -t fts5-icu:el10 .
+
+# AlmaLinux 9 (RHEL 9 compatible)
+podman build -f .container/Containerfile.el9 -t fts5-icu:el9 .
+
+# Build inside container
+podman run --rm -v "$PWD:/workspace:Z" fts5-icu:f44 zig build
 ```
 
 ---

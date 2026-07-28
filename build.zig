@@ -35,11 +35,15 @@ pub fn build(b: *std.Build) void {
         break :blk std.fmt.parseInt(u32, std.mem.trim(u8, result, " \n\r"), 10) catch 0;
     } else 0;
 
-    // On Linux with versioned ICU symbols, generate assembly aliases
+    const has_ubrk_clone = icu_ver == 0 or icu_ver >= 69;
+
+    // On Linux with versioned ICU symbols, generate assembly aliases.
+    // Skip functions that don't exist in the detected ICU version.
     const icu_alias_lp = if (icu_ver > 0) blk: {
         var buf: [4096]u8 = undefined;
         var pos: usize = 0;
         for (icu_funcs) |f| {
+            if (std.mem.eql(u8, f, "ubrk_clone") and !has_ubrk_clone) continue;
             const line = std.fmt.bufPrint(buf[pos..], ".globl {s}\n.type {s}, @function\n{s}:\n\tb {s}_{d}\n", .{ f, f, f, f, icu_ver }) catch unreachable;
             pos += line.len;
         }
@@ -47,11 +51,19 @@ pub fn build(b: *std.Build) void {
         break :blk alias_step.getDirectory().path(b, "icu_aliases.s");
     } else null;
 
+    // ICU options shared with c_icu.zig
+    const icu_opts = b.addOptions();
+    icu_opts.addOption(u32, "icu_version", icu_ver);
+    icu_opts.addOption(bool, "has_ubrk_clone", has_ubrk_clone);
+    const icu_options_mod = icu_opts.createModule();
+
     // Build options module for default library
     const options = b.addOptions();
     options.addOption([]const u8, "locale", locale);
     options.addOption([]const u8, "api_version", api_version);
     options.addOption([]const u8, "version", version_str);
+    options.addOption(u32, "icu_version", icu_ver);
+    options.addOption(bool, "has_ubrk_clone", has_ubrk_clone);
     const options_mod = options.createModule();
 
     // Translate-C step for SQLite and ICU headers
@@ -91,6 +103,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .imports = &.{
             .{ .name = "c", .module = c_mod },
+            .{ .name = "build_options", .module = icu_options_mod },
         },
     });
 
@@ -147,6 +160,8 @@ pub fn build(b: *std.Build) void {
     legacy_options.addOption([]const u8, "locale", locale);
     legacy_options.addOption([]const u8, "api_version", "v1");
     legacy_options.addOption([]const u8, "version", version_str);
+    legacy_options.addOption(u32, "icu_version", icu_ver);
+    legacy_options.addOption(bool, "has_ubrk_clone", has_ubrk_clone);
 
     const legacy_root_module = b.createModule(.{
         .root_source_file = b.path("src/fts5_icu.zig"),
@@ -176,6 +191,8 @@ pub fn build(b: *std.Build) void {
         loc_options.addOption([]const u8, "locale", loc);
         loc_options.addOption([]const u8, "api_version", "v2");
         loc_options.addOption([]const u8, "version", version_str);
+        loc_options.addOption(u32, "icu_version", icu_ver);
+        loc_options.addOption(bool, "has_ubrk_clone", has_ubrk_clone);
 
         const loc_root = b.createModule(.{
             .root_source_file = b.path("src/fts5_icu.zig"),
@@ -202,6 +219,8 @@ pub fn build(b: *std.Build) void {
         loc_leg_options.addOption([]const u8, "locale", loc);
         loc_leg_options.addOption([]const u8, "api_version", "v1");
         loc_leg_options.addOption([]const u8, "version", version_str);
+        loc_leg_options.addOption(u32, "icu_version", icu_ver);
+        loc_leg_options.addOption(bool, "has_ubrk_clone", has_ubrk_clone);
 
         const loc_leg_root = b.createModule(.{
             .root_source_file = b.path("src/fts5_icu.zig"),

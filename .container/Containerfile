@@ -1,0 +1,5 @@
+FROM arm64v8/fedora:44
+
+RUN dnf install -y sqlite-devel libicu-devel gcc zig && dnf clean all
+
+WORKDIR /workspace

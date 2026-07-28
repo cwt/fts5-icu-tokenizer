@@ -2,10 +2,12 @@ const std = @import("std");
 const c = @import("c");
 const icu = @import("c_icu");
 const rules = @import("rules.zig");
+const build_options = @import("build_options");
 
 pub const IcuTokenizer = struct {
     pBreakIterator: ?*c.UBreakIterator,
     pTransliterator: ?*c.UTransliterator,
+    locale_slice: []const u8,
 
     pub fn create(allocator: std.mem.Allocator, locale: []const u8) !*IcuTokenizer {
         var status: c.UErrorCode = c.U_ZERO_ERROR;
@@ -15,7 +17,9 @@ pub const IcuTokenizer = struct {
         tok.* = .{
             .pBreakIterator = null,
             .pTransliterator = null,
+            .locale_slice = try allocator.dupe(u8, locale),
         };
+        errdefer allocator.free(tok.locale_slice);
 
         const rule_str = rules.getRulesForLocale(locale);
 
@@ -47,6 +51,7 @@ pub const IcuTokenizer = struct {
     pub fn destroy(self: *IcuTokenizer, allocator: std.mem.Allocator) void {
         if (self.pBreakIterator) |bi| icu.ubrk_close(bi);
         if (self.pTransliterator) |tr| icu.utrans_close(tr);
+        allocator.free(self.locale_slice);
         allocator.destroy(self);
     }
 };
@@ -275,9 +280,15 @@ pub fn tokenizeText(
         }
     }
 
-    // Thread Safety: Clone break iterator for concurrent execution safety
+    // Thread Safety: Clone (or fresh-open on ICU < 69) break iterator for concurrent execution safety
     var clone_status: c.UErrorCode = c.U_ZERO_ERROR;
-    const pBreakIterator = icu.ubrk_clone(baseBreakIterator, &clone_status);
+    const pBreakIterator = if (build_options.has_ubrk_clone)
+        c.ubrk_clone(baseBreakIterator, &clone_status)
+    else blk: {
+        const locale_z = try allocator.dupeZ(u8, tokenizer.locale_slice);
+        defer allocator.free(locale_z);
+        break :blk icu.ubrk_open(c.UBRK_WORD, locale_z.ptr, null, 0, &clone_status);
+    };
     if (c.U_FAILURE(clone_status) or pBreakIterator == null) return c.SQLITE_ERROR;
     defer icu.ubrk_close(pBreakIterator);
 
@@ -504,6 +515,8 @@ test "tokenizeText large text SBO fallback" {
 }
 
 test "tokenizeText small input zero heap allocations (SBO)" {
+    if (!build_options.has_ubrk_clone) return error.SkipZigTest;
+
     const testing_allocator = std.testing.allocator;
 
     const tok = try IcuTokenizer.create(testing_allocator, "");

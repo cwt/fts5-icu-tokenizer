@@ -30,6 +30,22 @@ This project was originally written in C with CMake. The rewrite to **Zig 0.16.0
 - **Old C Problem**: Calling ICU functions from C required a separate `icu_helper.c` file with thin wrapper functions to avoid symbol conflicts.
 - **Zig Solution**: Zig's `addTranslateC` (`build.zig`) directly translates ICU and SQLite C headers into Zig `extern` declarations at build time. The Zig code calls ICU functions directly (`c.ubrk_open`, `c.utrans_openU`, `c.u_strToUTF8WithSub`) via the `c` module — no intermediate C wrapper file, no `@cImport`. The entire codebase is pure Zig.
 
+### 6. Comptime Entry Point Generation — No More Repetitive Boilerplate
+- **Old C Problem**: Each locale required a separate C file or a fragile macro (`PASTE_IMPL` `PASTE`) to produce the unique `sqlite3_ftsicuXX_init` symbol that SQLite's `.load` command resolves. Supporting 8 locales × 2 API versions meant 16 near-identical function definitions — easy to miss one, easy to get a name wrong.
+- **Zig Solution**: A single `comptime` block generates all 35 entry points from one declarative table. The Zig compiler evaluates the loop at build time, producing the correct exported symbols automatically. Adding a new locale is a one-line addition to the table, not a copy-paste of an entire function.
+
+### 7. Null-Safety Built Into the Type System
+- **Old C Problem**: A `NULL` pointer in a C extension causes a silent crash. SQLite's entry point can receive `NULL` for `db` or `pApi` (e.g., from a malformed `.load` command), but the compiler won't warn you if you forget to check.
+- **Zig Solution**: Pointers that can be null are marked explicitly with `?` (e.g., `?*c.sqlite3`). The compiler forces a null check before the pointer can be used as non-null, making it impossible to forget. Every entry point in this project validates both `db` and `pApi` at the top — enforced by the language, not by convention.
+
+### 8. Thread Safety by Design — Clone per Call
+- **Old C Problem**: ICU handles (`UBreakIterator`, `UTransliterator`) are not thread-safe. Sharing them across FTS5 queries required either global locks or careful per-thread management, both easy to get wrong under load.
+- **Zig Solution**: Every `tokenizeText()` call clones both ICU handles before use. There is no shared mutable state — each thread gets its own isolated copy. This makes the extension safe for concurrent FTS5 queries without locks, waits, or subtle data-race bugs. The pattern is verified by multi-threaded unit tests.
+
+### 9. Stack-Buffer Optimization for Small Inputs
+- **Old C Problem**: Every tokenization request, even for short strings, triggered heap allocation for UTF-16 conversion buffers, byte-offset maps, and transliteration scratch space. This added malloc/free overhead to every `MATCH` operation.
+- **Zig Solution**: The tokenizer uses fixed-size stack buffers (512 elements) for the common case. If the input fits, zero heap allocations occur — the entire conversion and transliteration pipeline runs on the stack. Heap allocation is only used when the input exceeds the stack capacity. Small inputs (most real-world tokens) are processed with deterministic, allocation-free performance.
+
 ---
 
 ## Key Features

@@ -72,8 +72,9 @@ This project was originally written in C with CMake. The rewrite to **Zig 0.16.0
 | Platform | Dependencies | Notes |
 |----------|--------------|-------|
 | macOS | `brew install zig sqlite icu4c` | |
-| Debian / Ubuntu | `apt install libsqlite3-dev libicu-dev` + Zig 0.16.0 | |
 | Fedora 44+ | `dnf install sqlite-devel libicu-devel gcc zig` | Zig 0.16.0 in repos, no extra download |
+| Debian 13 (stable) | `apt install libsqlite3-dev sqlite3 libicu-dev gcc wget xz-utils` + [Zig 0.16.0](https://ziglang.org/download/) | ICU 76, SQLite 3.46.1 (FTS5 API v1 only; v2 requires SQLite >= 3.47) |
+| Ubuntu 24.04 LTS | `apt install libsqlite3-dev sqlite3 libicu-dev gcc wget xz-utils` + [Zig 0.16.0](https://ziglang.org/download/) | ICU 74, SQLite 3.45.1 (FTS5 API v1 only) |
 | AlmaLinux 10 (RHEL 10) | `dnf install sqlite-devel libicu-devel gcc wget xz` + [Zig 0.16.0](https://ziglang.org/download/) | ICU 74, SQLite 3.46.1 (FTS5 API v1 only; v2 requires SQLite >= 3.47) |
 | AlmaLinux 9 (RHEL 9) | `dnf install sqlite-devel libicu-devel gcc wget xz` + [Zig 0.16.0](https://ziglang.org/download/) | ICU 67 (`ubrk_clone` missing; uses `ubrk_open` fallback), SQLite 3.34.1 (FTS5 API v1 only) |
 
@@ -121,6 +122,12 @@ Pre-built container images for CI or offline builds:
 ```bash
 # Fedora 44 (Zig 0.16.0 from repos)
 podman build -f .container/Containerfile -t fts5-icu:f44 .
+
+# Debian 13 (stable)
+podman build -f .container/Containerfile.debian -t fts5-icu:debian .
+
+# Ubuntu 24.04 LTS
+podman build -f .container/Containerfile.ubuntu -t fts5-icu:ubuntu .
 
 # AlmaLinux 10 (RHEL 10 compatible)
 podman build -f .container/Containerfile.el10 -t fts5-icu:el10 .

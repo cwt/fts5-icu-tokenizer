@@ -298,8 +298,11 @@ pub fn tokenizeText(
 
     // Thread Safety: Clone (or fresh-open on ICU < 69) break iterator for concurrent execution safety
     var clone_status: c.UErrorCode = c.U_ZERO_ERROR;
+    // Bug #11: use the `icu.ubrk_clone` resolver (which also resolves versioned
+    // symbols) instead of `c.ubrk_clone` directly, matching every other ICU
+    // call and removing the dead `icu.ubrk_clone` resolver.
     const pBreakIterator = if (build_options.has_ubrk_clone)
-        c.ubrk_clone(baseBreakIterator, &clone_status)
+        icu.ubrk_clone(baseBreakIterator, &clone_status)
     else blk: {
         const locale_z = try allocator.dupeZ(u8, tokenizer.locale_slice);
         defer allocator.free(locale_z);
@@ -554,6 +557,33 @@ test "tokenizeText memory safety and override_locale" {
     const text = "日本語のテスト and English text";
     const rc = try tokenizeText(testing_allocator, tok, text, "ja", null, dummyTokenCallback);
     try std.testing.expectEqual(@as(c_int, c.SQLITE_OK), rc);
+}
+
+// Bug #11: tokenizeText clones the break iterator per call (via icu.ubrk_clone
+// after the fix, removing the dead resolver). This exercises that clone path by
+// tokenizing mixed CJK + Latin text that needs real word segmentation and
+// asserting tokens are produced (including the Latin word as its own token).
+test "tokenizeText break-iterator clone path (bug #11)" {
+    const gpa = std.testing.allocator;
+
+    const tok = try IcuTokenizer.create(gpa, "");
+    defer tok.destroy(gpa);
+
+    var cap: Capture = .{ .gpa = gpa, .tokens = .empty };
+    defer {
+        for (cap.tokens.items) |t| gpa.free(t);
+        cap.tokens.deinit(gpa);
+    }
+
+    const rc = try tokenizeText(gpa, tok, "日本語のテスト and English", null, &cap, captureTokenCallback);
+    try std.testing.expectEqual(@as(c_int, c.SQLITE_OK), rc);
+    try std.testing.expect(cap.tokens.items.len > 0);
+
+    var found_english = false;
+    for (cap.tokens.items) |t| {
+        if (std.mem.eql(u8, t, "english")) found_english = true;
+    }
+    try std.testing.expect(found_english);
 }
 
 test "tokenizeText large text SBO fallback" {

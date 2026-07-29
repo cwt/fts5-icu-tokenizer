@@ -56,6 +56,17 @@ pub const ubrk_getRuleStatus = blk: {
     @compileError("ICU function '" ++ name ++ "' not found");
 };
 
+// Bug #11: resolver for ubrk_clone so tokenizeText uses the resolved symbol
+// (matching utrans_clone) instead of the raw `c.ubrk_clone` direct reference.
+pub const ubrk_clone = blk: {
+    const name = "ubrk_clone";
+    @setEvalBranchQuota(2000);
+    if (@hasDecl(c, name)) break :blk c.ubrk_clone;
+    if (build_options.icu_version > 0 and @hasDecl(c, std.fmt.comptimePrint(name ++ "_{d}", .{build_options.icu_version})))
+        break :blk @field(c, std.fmt.comptimePrint(name ++ "_{d}", .{build_options.icu_version}));
+    @compileError("ICU function '" ++ name ++ "' not found");
+};
+
 pub const u_strFromUTF8 = blk: {
     const name = "u_strFromUTF8";
     @setEvalBranchQuota(2000);

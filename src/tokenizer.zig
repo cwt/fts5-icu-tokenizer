@@ -90,9 +90,17 @@ pub fn transliterateString(allocator: std.mem.Allocator, input: []const u8, rule
     if (status == c.U_BUFFER_OVERFLOW_ERROR) {
         // Transliteration expanded beyond the buffer (bug #3): grow to the
         // required length and retry, instead of returning an error.
+        //
+        // Bug #8 fix: allocate the replacement buffer into a temporary first,
+        // then swap. The previous code freed `output_u16` and reassigned it
+        // before the `try`; on OutOfMemory the `defer allocator.free(output_u16)`
+        // would run on the already-freed pointer (double free, CWE-415). By
+        // allocating into `new_u16` first, a failed realloc leaves `output_u16`
+        // pointing at the still-valid original buffer, which `defer` frees once.
         const need: usize = @as(usize, @intCast(out_len)) + 64;
+        const new_u16 = try allocator.alloc(c.UChar, need);
         allocator.free(output_u16);
-        output_u16 = try allocator.alloc(c.UChar, need);
+        output_u16 = new_u16;
         @memcpy(output_u16[0..input_u16.len], input_u16);
         out_len = @intCast(input_u16.len);
         limit = out_len;
@@ -455,6 +463,32 @@ test "transliterateString grows buffer instead of erroring (bug #3)" {
     try std.testing.expect(out.len > 0);
     try std.testing.expect(std.mem.indexOf(u8, out, "russkij") != null);
     try std.testing.expect(std.mem.indexOf(u8, out, "francais") != null);
+}
+
+// Bug #8: the grow-on-overflow retry path in transliterateString previously
+// freed the old buffer and reassigned `output_u16` before the realloc `try`. On
+// OutOfMemory that left `output_u16` pointing at freed memory, and the
+// `defer allocator.free(output_u16)` then double-freed it (CWE-415). This test
+// drives the retry branch with a transform (`Any-Name`) that spells each input
+// character out as its long Unicode name, so the final output far exceeds the
+// `len * 3 + 64` capacity heuristic and the grow-on-overflow retry branch must
+// run. The double free itself is undefined behavior the testing allocator does
+// not detect, so this guards the code path and its output rather than the OOM
+// path directly.
+test "transliterateString overflow retry is correct (bug #8)" {
+    const gpa = std.testing.allocator;
+
+    // `Any-Name` rewrites each character to its spelled-out Unicode name
+    // (e.g. "A" -> "LATIN CAPITAL LETTER A"). For the 4-char input the
+    // transliteration is ~104 UTF-16 units, well above the capacity of
+    // 4*3 + 64 = 76, forcing the grow-on-overflow retry branch.
+    const out = try transliterateString(gpa, "ABCD", "Any-Name");
+    defer gpa.free(out);
+
+    // Final output exceeded the initial capacity, so the overflow-retry branch
+    // executed and produced a correct, expanded result.
+    try std.testing.expect(out.len > 76);
+    try std.testing.expect(std.mem.indexOf(u8, out, "LATIN") != null);
 }
 
 test "IcuTokenizer creation & destruction memory safety" {

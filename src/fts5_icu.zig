@@ -338,7 +338,12 @@ const entrypoints = [_]struct {
 
 comptime {
     for (entrypoints) |ep| {
-        @export(&entrypointType(ep.locale, ep.legacy).init, .{ .name = ep.name });
+        // Bug #13: only export this library's own entrypoints. The universal
+        // library (build_options.locale == "") keeps all 35 for backward
+        // compatibility; each locale-specific library exports only its 4.
+        if (build_options.locale.len == 0 or std.mem.eql(u8, ep.locale, build_options.locale)) {
+            @export(&entrypointType(ep.locale, ep.legacy).init, .{ .name = ep.name });
+        }
     }
 }
 
@@ -370,6 +375,28 @@ test "entrypoint table integrity" {
     }
     try std.testing.expect(has_universal);
     try std.testing.expect(has_universal_legacy);
+}
+
+// Bug #13: the comptime export loop must only emit this library's own
+// entrypoints (the universal library, locale == "", keeps all 35 for backward
+// compatibility; each locale library exports only its 4). This test mirrors that
+// filter and asserts the expected exported count for the current build.
+test "entrypoint export set matches build locale (bug #13)" {
+    var exported_count: usize = 0;
+    for (entrypoints) |ep| {
+        if (build_options.locale.len == 0 or std.mem.eql(u8, ep.locale, build_options.locale)) {
+            exported_count += 1;
+        }
+    }
+    if (build_options.locale.len == 0) {
+        try std.testing.expectEqual(@as(usize, 35), exported_count);
+    } else {
+        // Locale-specific build: must NOT export all 35 (bloat reduction from
+        // bug #13); it only emits its own entrypoints (the universal-named ones
+        // carry build_options.locale, plus this locale's named ones).
+        try std.testing.expect(exported_count > 0);
+        try std.testing.expect(exported_count < 35);
+    }
 }
 
 // Bug #9: FTS5's xCreate receives the tokenizer NAME as azArg[0] and an

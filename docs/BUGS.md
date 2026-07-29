@@ -468,17 +468,44 @@ are excluded from the bug list above.
 
 ## New Findings (2026 audit)
 
-These bugs were discovered during a subsequent source-level audit. They are
-**not yet fixed.**
+These bugs were discovered during a subsequent source-level audit. They have all
+been **fixed and committed separately** (each with a dedicated Zig unit test that
+guards the regression), verified with `zig build test` (22/22 passing) and the
+full `zig build`.
 
-| Bug | Severity | Status |
-|-----|----------|--------|
-| #8 | MEDIUM | OPEN |
-| #9 | MEDIUM | OPEN |
-| #10 | LOW | OPEN |
-| #11 | LOW | OPEN |
-| #12 | LOW | OPEN |
-| #13 | LOW | OPEN |
+| Bug | Severity | Status | Fix commit |
+|-----|----------|--------|-----------
+| #8 | MEDIUM | FIXED | 52d1e944 |
+| #9 | MEDIUM | FIXED | 23310bf6 |
+| #10 | LOW | FIXED | 8126fd33 |
+| #11 | LOW | FIXED | 4e980f79 |
+| #12 | LOW | FIXED | d22f41c6 |
+| #13 | LOW | FIXED | 3883b636 |
+
+> **Note on #10:** its diagnosis in the original audit draft was wrong — it
+> claimed the `u_strToUTF8` preflight length included the NUL and proposed
+> `destCapacity = utf8_len` as the fix. An empirical probe proved the preflight
+> returns the content length *without* the NUL, so the real bug is a 1-byte heap
+> overflow (NUL written past the `utf8_len`-byte buffer). The correct fix is
+> `allocate utf8_len + 1 / destCapacity = utf8_len + 1`. The diagnosis and fix
+> were corrected in commit 88a31797 before the code fix.
+
+### Verification highlights
+
+- **#8** (double free on OOM): fixed by allocating the replacement buffer into a
+  temporary before freeing the old one.
+- **#9** (tokenizer name treated as locale): `icuCreate` now ignores `azArg[0]`
+  (the FTS5 tokenizer name) and reads an optional locale override from
+  `azArg[1]`, matching SQLite's own `fts5_icu.c` (`nArg > 1 -> azArg[1]`).
+- **#10** (1-byte heap overflow): fixed; the testing allocator's canary check
+  caught the original overflow during development.
+- **#11** (dead `ubrk_clone` resolver): there was in fact *no* such resolver in
+  the current code; `tokenizeText` referenced `c.ubrk_clone` directly. Added a
+  resolver for consistency with every other ICU call and switched to it.
+- **#12** (dead `u_strFromUTF8`): resolver and `icu_funcs` entry removed.
+- **#13** (all 35 entrypoints in every locale lib): the comptime `@export` loop
+  is now filtered by `build_options.locale`; `nm` confirms the `ja` lib exports
+  only its 7 entrypoints and the universal lib keeps all 35.
 
 ---
 

@@ -480,7 +480,7 @@ full `zig build`.
 | #10 | LOW | FIXED | 8126fd33 |
 | #11 | LOW | FIXED | 4e980f79 |
 | #12 | LOW | FIXED | d22f41c6 |
-| #13 | LOW | FIXED | 3883b636 |
+| #13 | LOW | FIXED | 27e7cbf4 |
 
 > **Note on #10:** its diagnosis in the original audit draft was wrong — it
 > claimed the `u_strToUTF8` preflight length included the NUL and proposed
@@ -503,9 +503,13 @@ full `zig build`.
   the current code; `tokenizeText` referenced `c.ubrk_clone` directly. Added a
   resolver for consistency with every other ICU call and switched to it.
 - **#12** (dead `u_strFromUTF8`): resolver and `icu_funcs` entry removed.
-- **#13** (all 35 entrypoints in every locale lib): the comptime `@export` loop
-  is now filtered by `build_options.locale`; `nm` confirms the `ja` lib exports
-  only its 7 entrypoints and the universal lib keeps all 35.
+- **#13** (all 35 entrypoints exported in every library): the comptime `@export`
+  loop is now filtered by `build_options.locale`. Verified against the original C
+  version (`main.git`), where each `.so` is compiled once per locale and the
+  entry-point name is pasted from the locale suffix — so the universal build
+  exports ONLY the non-locale-specific entry points. The three universal-named
+  entry points carry `locale = ""` (always non-locale-specific), so `nm` confirms
+  the universal lib exports exactly 3 and each locale lib (ja, zh, …) exactly 4.
 
 ---
 
@@ -798,7 +802,11 @@ the root source for every library, each locale-specific `.so` (e.g.
 
 SQLite only invokes the entrypoint that matches the library's loaded stem name
 (e.g. `.load .../libfts5_icu_ja` → `sqlite3_ftsicuja_init`), so the other 34
-symbols in the binary are unreachable dead exports.
+symbols in a locale binary are unreachable dead exports. The universal
+`libfts5_icu.so` had the same problem — it exported all 35 too, including every
+locale-specific name, instead of just its 3 non-locale-specific entry points.
+That contradicts the original C version (`main.git`), where the universal build
+never emits the locale-specific names.
 
 ### Impact
 
@@ -809,4 +817,7 @@ symbols in the binary are unreachable dead exports.
 
 Filter the entrypoints table at comptime with `build_options.locale` so each
 library only exports its own symbols. The universal library (`locale = ""`)
-would still export all 35 for backward compatibility.
+exports only the 3 non-locale-specific entry points (`sqlite3_ftsicu_init`,
+`sqlite3_ftsicu_legacy_init`, `sqlite3_ftsiculegacy_init`); each locale-specific
+library exports only its 4 entry points. This matches the original C version
+(`main.git`), where the universal build never emits the locale-specific names.

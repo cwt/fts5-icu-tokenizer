@@ -32,7 +32,7 @@ This project was originally written in C with CMake. The rewrite to **Zig 0.16.0
 
 ### 6. Comptime Entry Point Generation — No More Repetitive Boilerplate
 - **Old C Problem**: Each locale required a separate C file or a fragile macro (`PASTE_IMPL` `PASTE`) to produce the unique `sqlite3_ftsicuXX_init` symbol that SQLite's `.load` command resolves. Supporting 8 locales × 2 API versions meant 16 near-identical function definitions — easy to miss one, easy to get a name wrong.
-- **Zig Solution**: A single `comptime` block generates all 35 entry points from one declarative table. The Zig compiler evaluates the loop at build time, producing the correct exported symbols automatically. Adding a new locale is a one-line addition to the table, not a copy-paste of an entire function.
+- **Zig Solution**: A single `comptime` block generates all 35 entry points from one declarative table. The Zig compiler evaluates the loop at build time, producing the correct exported symbols automatically. Adding a new locale is a one-line addition to the table, not a copy-paste of an entire function. Each build exports only the entry points relevant to its locale — the universal library keeps the 3 non-locale-specific ones (`sqlite3_ftsicu_init`, `sqlite3_ftsicu_legacy_init`, `sqlite3_ftsiculegacy_init`) and each locale-specific library keeps its own 4 — so there is no redundant symbol bloat across the per-locale `.so` files.
 
 ### 7. Null-Safety Built Into the Type System
 - **Old C Problem**: A `NULL` pointer in a C extension causes a silent crash. SQLite's entry point can receive `NULL` for `db` or `pApi` (e.g., from a malformed `.load` command), but the compiler won't warn you if you forget to check.
@@ -159,6 +159,19 @@ SELECT * FROM documents WHERE documents MATCH 'หวาน';
 CREATE VIRTUAL TABLE documents_th USING fts5(content, tokenize = 'icu_th');
 INSERT INTO documents_th(content) VALUES ('การทดสอบภาษาไทยในระบบค้นหา');
 SELECT * FROM documents_th WHERE documents_th MATCH 'ภาษา';
+```
+
+### Locale Override on the Universal Tokenizer
+As an alternative to loading a per-locale library, the universal tokenizer
+accepts the locale inline as a second FTS5 tokenizer argument — the token after
+the space selects the locale rule set (e.g. `'icu th'` uses Thai word-breaking and
+transliteration):
+
+```sql
+.load ./zig-out/lib/libfts5_icu
+
+CREATE VIRTUAL TABLE documents_th2 USING fts5(content, tokenize = 'icu th');
+SELECT * FROM documents_th2 WHERE documents_th2 MATCH 'ภาษา';
 ```
 
 ### Querying Version

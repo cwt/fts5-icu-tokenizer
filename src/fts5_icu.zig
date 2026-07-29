@@ -291,9 +291,9 @@ const entrypoints = [_]struct {
     locale: []const u8,
     legacy: bool,
 }{
-    .{ .name = "sqlite3_ftsicu_init", .locale = build_options.locale, .legacy = false },
-    .{ .name = "sqlite3_ftsicu_legacy_init", .locale = build_options.locale, .legacy = true },
-    .{ .name = "sqlite3_ftsiculegacy_init", .locale = build_options.locale, .legacy = true },
+    .{ .name = "sqlite3_ftsicu_init", .locale = "", .legacy = false },
+    .{ .name = "sqlite3_ftsicu_legacy_init", .locale = "", .legacy = true },
+    .{ .name = "sqlite3_ftsiculegacy_init", .locale = "", .legacy = true },
 
     .{ .name = "sqlite3_ftsicuja_init", .locale = "ja", .legacy = false },
     .{ .name = "sqlite3_ftsicu_ja_init", .locale = "ja", .legacy = false },
@@ -338,10 +338,13 @@ const entrypoints = [_]struct {
 
 comptime {
     for (entrypoints) |ep| {
-        // Bug #13: only export this library's own entrypoints. The universal
-        // library (build_options.locale == "") keeps all 35 for backward
-        // compatibility; each locale-specific library exports only its 4.
-        if (build_options.locale.len == 0 or std.mem.eql(u8, ep.locale, build_options.locale)) {
+        // Bug #13: export only this library's own entrypoints. The universal
+        // library (build_options.locale == "") exports just the 3
+        // non-locale-specific entrypoints; each locale-specific library
+        // exports only its own 4. Mirrors the original C build, which compiles
+        // one .so per locale and pastes the suffix into the entry-point name,
+        // so the universal .so never emits the locale-specific names.
+        if (std.mem.eql(u8, ep.locale, build_options.locale)) {
             @export(&entrypointType(ep.locale, ep.legacy).init, .{ .name = ep.name });
         }
     }
@@ -378,24 +381,23 @@ test "entrypoint table integrity" {
 }
 
 // Bug #13: the comptime export loop must only emit this library's own
-// entrypoints (the universal library, locale == "", keeps all 35 for backward
-// compatibility; each locale library exports only its 4). This test mirrors that
-// filter and asserts the expected exported count for the current build.
+// entrypoints (the universal library exports only the 3 non-locale-specific
+// ones; each locale library exports only its 4). This test mirrors that filter
+// and asserts the expected exported count for the current build.
 test "entrypoint export set matches build locale (bug #13)" {
     var exported_count: usize = 0;
     for (entrypoints) |ep| {
-        if (build_options.locale.len == 0 or std.mem.eql(u8, ep.locale, build_options.locale)) {
+        if (std.mem.eql(u8, ep.locale, build_options.locale)) {
             exported_count += 1;
         }
     }
     if (build_options.locale.len == 0) {
-        try std.testing.expectEqual(@as(usize, 35), exported_count);
+        // Universal library: only the 3 non-locale-specific entrypoints
+        // (sqlite3_ftsicu_init / _legacy_init / legacylegacy_init).
+        try std.testing.expectEqual(@as(usize, 3), exported_count);
     } else {
-        // Locale-specific build: must NOT export all 35 (bloat reduction from
-        // bug #13); it only emits its own entrypoints (the universal-named ones
-        // carry build_options.locale, plus this locale's named ones).
-        try std.testing.expect(exported_count > 0);
-        try std.testing.expect(exported_count < 35);
+        // Each locale-specific library: only its own 4 entrypoints.
+        try std.testing.expectEqual(@as(usize, 4), exported_count);
     }
 }
 

@@ -119,15 +119,23 @@ pub fn transliterateString(allocator: std.mem.Allocator, input: []const u8, rule
     }
 
     status = c.U_ZERO_ERROR;
-    const utf8_output = try allocator.alloc(u8, @intCast(utf8_len));
-    errdefer allocator.free(utf8_output);
+    // Bug #10 fix: `utf8_len` from the preflight is the content length WITHOUT
+    // the NUL terminator (verified empirically against ICU). Allocate room for
+    // the terminator — ICU writes it when the buffer is large enough — and
+    // pass `destCapacity = utf8_len + 1`. The returned slice is an exact
+    // `utf8_len`-byte copy so the caller can free it normally; returning a
+    // sub-slice of the +1 buffer would be unfreeable. The previous code used a
+    // `utf8_len`-byte buffer with `destCapacity = utf8_len + 1`, a 1-byte heap
+    // overflow (the NUL was written one byte past the allocation, CWE-787).
+    const buf_with_nul = try allocator.alloc(u8, @as(usize, @intCast(utf8_len)) + 1);
+    defer allocator.free(buf_with_nul);
 
-    _ = icu.u_strToUTF8(utf8_output.ptr, utf8_len + 1, null, output_u16.ptr, limit, &status);
+    _ = icu.u_strToUTF8(buf_with_nul.ptr, utf8_len + 1, null, output_u16.ptr, limit, &status);
     if (c.U_FAILURE(status)) {
         return error.Utf8ConvertFailed;
     }
 
-    return utf8_output;
+    return allocator.dupe(u8, buf_with_nul[0..@as(usize, @intCast(utf8_len))]);
 }
 
 // Build the UTF-8 byte-offset map (utf16 index -> utf8 start byte) for `text`.
@@ -489,6 +497,25 @@ test "transliterateString overflow retry is correct (bug #8)" {
     // executed and produced a correct, expanded result.
     try std.testing.expect(out.len > 76);
     try std.testing.expect(std.mem.indexOf(u8, out, "LATIN") != null);
+}
+
+// Bug #10: the final UTF-16 -> UTF-8 step must allocate room for the NUL
+// terminator ICU writes (the preflight `utf8_len` excludes it) and pass
+// `destCapacity = utf8_len + 1`. A `utf8_len`-byte buffer with
+// `destCapacity = utf8_len + 1` is a 1-byte heap overflow, and the earlier
+// draft's proposed `destCapacity = utf8_len` instead makes ICU return
+// U_BUFFER_OVERFLOW_ERROR so transliterateString fails. This test guards both:
+// it must succeed and return the exact transliterated text.
+test "transliterateString UTF-8 terminator fits buffer (bug #10)" {
+    const gpa = std.testing.allocator;
+
+    const out = try transliterateString(gpa, "Café", rules.ICU_RULE_DEFAULT);
+    defer gpa.free(out);
+
+    // NFKD + Latin-ASCII + NFKC reduces "Café" to "cafe"; the returned slice is
+    // exactly the content (the terminator is internal-only and excluded from
+    // the length).
+    try std.testing.expectEqualStrings("cafe", out);
 }
 
 test "IcuTokenizer creation & destruction memory safety" {

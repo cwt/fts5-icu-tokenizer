@@ -67,8 +67,14 @@ fn icuCreate(
 ) callconv(.c) c_int {
     _ = pCtx;
     var locale: []const u8 = build_options.locale;
-    if (nArg > 0 and azArg != null and azArg[0] != null and azArg[0][0] != 0) {
-        locale = std.mem.span(azArg[0]);
+    // FTS5 passes the tokenizer NAME as azArg[0]; an optional locale override is
+    // the SECOND argument (e.g. `tokenize = 'icu th'`), matching SQLite's own
+    // fts5_icu.c (`nArg > 1 -> azArg[1]`). The baked-in `build_options.locale`
+    // is already correct for this library, so only honor a SECOND argument as
+    // an explicit locale override. Reading azArg[0] as the locale (the previous
+    // behavior) made every locale-specific library use the wrong ICU locale.
+    if (nArg > 1 and azArg != null and azArg[1] != null and azArg[1][0] != 0) {
+        locale = std.mem.span(azArg[1]);
     }
 
     const tok = tokenizer.IcuTokenizer.create(std.heap.c_allocator, locale) catch {
@@ -364,4 +370,41 @@ test "entrypoint table integrity" {
     }
     try std.testing.expect(has_universal);
     try std.testing.expect(has_universal_legacy);
+}
+
+// Bug #9: FTS5's xCreate receives the tokenizer NAME as azArg[0] and an
+// optional locale override as azArg[1] (SQLite's own fts5_icu.c reads
+// `nArg > 1 -> azArg[1]`). The previous code treated azArg[0] as the locale,
+// so `tokenize = 'icu_ja'` set locale = "icu_ja" (an invalid ICU locale),
+// making every locale-specific library use the wrong word-breaking and
+// transliteration rules. This test checks that icuCreate ignores the name and
+// only honors a SECOND argument as the locale override. (In the universal test
+// build build_options.locale == "".)
+test "icuCreate ignores tokenizer name, uses arg[1] as locale (bug #9)" {
+    var ppOut: ?*Fts5Tokenizer = null;
+
+    // Case 1: azArg[0] = "icu_ja" (the tokenizer name), no override -> locale
+    // must stay build_options.locale, NOT "icu_ja".
+    const arg0 = "icu_ja";
+    var azArg0 = [_][*c]const u8{arg0.ptr};
+    const rc1 = icuCreate(null, &azArg0, 1, &ppOut);
+    try std.testing.expectEqual(@as(c_int, c.SQLITE_OK), rc1);
+    {
+        const tok: *tokenizer.IcuTokenizer = @ptrCast(@alignCast(ppOut.?));
+        try std.testing.expectEqualStrings(build_options.locale, tok.locale_slice);
+        tok.destroy(std.heap.c_allocator);
+    }
+
+    // Case 2: azArg[0] = "icu", azArg[1] = "th" -> explicit locale override to
+    // "th".
+    const arg1a = "icu";
+    const arg1b = "th";
+    var azArg1 = [_][*c]const u8{ arg1a.ptr, arg1b.ptr };
+    const rc2 = icuCreate(null, &azArg1, 2, &ppOut);
+    try std.testing.expectEqual(@as(c_int, c.SQLITE_OK), rc2);
+    {
+        const tok: *tokenizer.IcuTokenizer = @ptrCast(@alignCast(ppOut.?));
+        try std.testing.expectEqualStrings("th", tok.locale_slice);
+        tok.destroy(std.heap.c_allocator);
+    }
 }

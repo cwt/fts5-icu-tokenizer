@@ -67,15 +67,6 @@ pub const ubrk_clone = blk: {
     @compileError("ICU function '" ++ name ++ "' not found");
 };
 
-pub const u_strFromUTF8 = blk: {
-    const name = "u_strFromUTF8";
-    @setEvalBranchQuota(2000);
-    if (@hasDecl(c, name)) break :blk c.u_strFromUTF8;
-    if (build_options.icu_version > 0 and @hasDecl(c, std.fmt.comptimePrint(name ++ "_{d}", .{build_options.icu_version})))
-        break :blk @field(c, std.fmt.comptimePrint(name ++ "_{d}", .{build_options.icu_version}));
-    @compileError("ICU function '" ++ name ++ "' not found");
-};
-
 pub const u_strToUTF8WithSub = blk: {
     const name = "u_strToUTF8WithSub";
     @setEvalBranchQuota(2000);

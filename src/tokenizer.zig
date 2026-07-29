@@ -839,3 +839,17 @@ test "tokenizeText transliteration preserves all tokens (bug #2 regression)" {
     try std.testing.expect(found_russian);
     try std.testing.expect(found_french);
 }
+
+// Bug #12: `u_strFromUTF8` was removed (dead; utf8ToUtf16Alloc uses the std
+// UTF-16 converter). This confirms the live transliteration path still works end
+// to end — rule string -> std UTF-16 conversion -> utrans -> UTF-8 — with no
+// dependency on u_strFromUTF8.
+test "transliterateString works without u_strFromUTF8 (bug #12)" {
+    const gpa = std.testing.allocator;
+    const out = try transliterateString(gpa, "Ελληνικά", rules.ICU_RULE_DEFAULT);
+    defer gpa.free(out);
+    try std.testing.expect(out.len > 0);
+    // Greek must be Latinized to pure ASCII (no u_strFromUTF8 involved).
+    for (out) |b| try std.testing.expect(b < 0x80);
+    try std.testing.expect(std.mem.indexOf(u8, out, "ellenika") != null);
+}

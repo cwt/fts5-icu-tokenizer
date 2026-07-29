@@ -9,7 +9,6 @@ const icu_funcs = [_][]const u8{
     "ubrk_first",
     "ubrk_next",
     "ubrk_getRuleStatus",
-    "u_strFromUTF8",
     "u_strToUTF8WithSub",
     "u_strToUTF8",
     "utrans_openU",

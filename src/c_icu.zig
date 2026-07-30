@@ -3,120 +3,105 @@ const c = @import("c");
 const build_options = @import("build_options");
 
 pub const ubrk_open = blk: {
-    const name = "ubrk_open";
-    @setEvalBranchQuota(2000);
-    if (@hasDecl(c, name)) break :blk c.ubrk_open;
-    if (build_options.icu_version > 0 and @hasDecl(c, std.fmt.comptimePrint(name ++ "_{d}", .{build_options.icu_version})))
-        break :blk @field(c, std.fmt.comptimePrint(name ++ "_{d}", .{build_options.icu_version}));
-    @compileError("ICU function '" ++ name ++ "' not found");
+    const name = if (build_options.icu_version > 0)
+        std.fmt.comptimePrint("ubrk_open_{d}", .{build_options.icu_version})
+    else
+        "ubrk_open";
+    break :blk @extern(*const @TypeOf(c.ubrk_open), .{ .name = name });
 };
 
 pub const ubrk_close = blk: {
-    const name = "ubrk_close";
-    @setEvalBranchQuota(2000);
-    if (@hasDecl(c, name)) break :blk c.ubrk_close;
-    if (build_options.icu_version > 0 and @hasDecl(c, std.fmt.comptimePrint(name ++ "_{d}", .{build_options.icu_version})))
-        break :blk @field(c, std.fmt.comptimePrint(name ++ "_{d}", .{build_options.icu_version}));
-    @compileError("ICU function '" ++ name ++ "' not found");
+    const name = if (build_options.icu_version > 0)
+        std.fmt.comptimePrint("ubrk_close_{d}", .{build_options.icu_version})
+    else
+        "ubrk_close";
+    break :blk @extern(*const @TypeOf(c.ubrk_close), .{ .name = name });
 };
 
 pub const ubrk_setText = blk: {
-    const name = "ubrk_setText";
-    @setEvalBranchQuota(2000);
-    if (@hasDecl(c, name)) break :blk c.ubrk_setText;
-    if (build_options.icu_version > 0 and @hasDecl(c, std.fmt.comptimePrint(name ++ "_{d}", .{build_options.icu_version})))
-        break :blk @field(c, std.fmt.comptimePrint(name ++ "_{d}", .{build_options.icu_version}));
-    @compileError("ICU function '" ++ name ++ "' not found");
+    const name = if (build_options.icu_version > 0)
+        std.fmt.comptimePrint("ubrk_setText_{d}", .{build_options.icu_version})
+    else
+        "ubrk_setText";
+    break :blk @extern(*const @TypeOf(c.ubrk_setText), .{ .name = name });
 };
 
 pub const ubrk_first = blk: {
-    const name = "ubrk_first";
-    @setEvalBranchQuota(2000);
-    if (@hasDecl(c, name)) break :blk c.ubrk_first;
-    if (build_options.icu_version > 0 and @hasDecl(c, std.fmt.comptimePrint(name ++ "_{d}", .{build_options.icu_version})))
-        break :blk @field(c, std.fmt.comptimePrint(name ++ "_{d}", .{build_options.icu_version}));
-    @compileError("ICU function '" ++ name ++ "' not found");
+    const name = if (build_options.icu_version > 0)
+        std.fmt.comptimePrint("ubrk_first_{d}", .{build_options.icu_version})
+    else
+        "ubrk_first";
+    break :blk @extern(*const @TypeOf(c.ubrk_first), .{ .name = name });
 };
 
 pub const ubrk_next = blk: {
-    const name = "ubrk_next";
-    @setEvalBranchQuota(2000);
-    if (@hasDecl(c, name)) break :blk c.ubrk_next;
-    if (build_options.icu_version > 0 and @hasDecl(c, std.fmt.comptimePrint(name ++ "_{d}", .{build_options.icu_version})))
-        break :blk @field(c, std.fmt.comptimePrint(name ++ "_{d}", .{build_options.icu_version}));
-    @compileError("ICU function '" ++ name ++ "' not found");
+    const name = if (build_options.icu_version > 0)
+        std.fmt.comptimePrint("ubrk_next_{d}", .{build_options.icu_version})
+    else
+        "ubrk_next";
+    break :blk @extern(*const @TypeOf(c.ubrk_next), .{ .name = name });
 };
 
 pub const ubrk_getRuleStatus = blk: {
-    const name = "ubrk_getRuleStatus";
-    @setEvalBranchQuota(2000);
-    if (@hasDecl(c, name)) break :blk c.ubrk_getRuleStatus;
-    if (build_options.icu_version > 0 and @hasDecl(c, std.fmt.comptimePrint(name ++ "_{d}", .{build_options.icu_version})))
-        break :blk @field(c, std.fmt.comptimePrint(name ++ "_{d}", .{build_options.icu_version}));
-    @compileError("ICU function '" ++ name ++ "' not found");
+    const name = if (build_options.icu_version > 0)
+        std.fmt.comptimePrint("ubrk_getRuleStatus_{d}", .{build_options.icu_version})
+    else
+        "ubrk_getRuleStatus";
+    break :blk @extern(*const @TypeOf(c.ubrk_getRuleStatus), .{ .name = name });
 };
 
-// Bug #11: resolver for ubrk_clone so tokenizeText uses the resolved symbol
-// (matching utrans_clone) instead of the raw `c.ubrk_clone` direct reference.
-pub const ubrk_clone = blk: {
-    const name = "ubrk_clone";
-    @setEvalBranchQuota(2000);
-    if (@hasDecl(c, name)) break :blk c.ubrk_clone;
-    if (build_options.icu_version > 0 and @hasDecl(c, std.fmt.comptimePrint(name ++ "_{d}", .{build_options.icu_version})))
-        break :blk @field(c, std.fmt.comptimePrint(name ++ "_{d}", .{build_options.icu_version}));
-    @compileError("ICU function '" ++ name ++ "' not found");
-};
+pub const ubrk_clone = if (@hasDecl(c, "ubrk_clone")) blk: {
+    const name = if (build_options.icu_version > 0 and build_options.has_ubrk_clone)
+        std.fmt.comptimePrint("ubrk_clone_{d}", .{build_options.icu_version})
+    else
+        "ubrk_clone";
+    break :blk @extern(*const @TypeOf(c.ubrk_clone), .{ .name = name });
+} else @compileError("ICU function 'ubrk_clone' not found");
 
 pub const u_strToUTF8WithSub = blk: {
-    const name = "u_strToUTF8WithSub";
-    @setEvalBranchQuota(2000);
-    if (@hasDecl(c, name)) break :blk c.u_strToUTF8WithSub;
-    if (build_options.icu_version > 0 and @hasDecl(c, std.fmt.comptimePrint(name ++ "_{d}", .{build_options.icu_version})))
-        break :blk @field(c, std.fmt.comptimePrint(name ++ "_{d}", .{build_options.icu_version}));
-    @compileError("ICU function '" ++ name ++ "' not found");
+    const name = if (build_options.icu_version > 0)
+        std.fmt.comptimePrint("u_strToUTF8WithSub_{d}", .{build_options.icu_version})
+    else
+        "u_strToUTF8WithSub";
+    break :blk @extern(*const @TypeOf(c.u_strToUTF8WithSub), .{ .name = name });
 };
 
 pub const u_strToUTF8 = blk: {
-    const name = "u_strToUTF8";
-    @setEvalBranchQuota(2000);
-    if (@hasDecl(c, name)) break :blk c.u_strToUTF8;
-    if (build_options.icu_version > 0 and @hasDecl(c, std.fmt.comptimePrint(name ++ "_{d}", .{build_options.icu_version})))
-        break :blk @field(c, std.fmt.comptimePrint(name ++ "_{d}", .{build_options.icu_version}));
-    @compileError("ICU function '" ++ name ++ "' not found");
+    const name = if (build_options.icu_version > 0)
+        std.fmt.comptimePrint("u_strToUTF8_{d}", .{build_options.icu_version})
+    else
+        "u_strToUTF8";
+    break :blk @extern(*const @TypeOf(c.u_strToUTF8), .{ .name = name });
 };
 
 pub const utrans_openU = blk: {
-    const name = "utrans_openU";
-    @setEvalBranchQuota(2000);
-    if (@hasDecl(c, name)) break :blk c.utrans_openU;
-    if (build_options.icu_version > 0 and @hasDecl(c, std.fmt.comptimePrint(name ++ "_{d}", .{build_options.icu_version})))
-        break :blk @field(c, std.fmt.comptimePrint(name ++ "_{d}", .{build_options.icu_version}));
-    @compileError("ICU function '" ++ name ++ "' not found");
+    const name = if (build_options.icu_version > 0)
+        std.fmt.comptimePrint("utrans_openU_{d}", .{build_options.icu_version})
+    else
+        "utrans_openU";
+    break :blk @extern(*const @TypeOf(c.utrans_openU), .{ .name = name });
 };
 
 pub const utrans_close = blk: {
-    const name = "utrans_close";
-    @setEvalBranchQuota(2000);
-    if (@hasDecl(c, name)) break :blk c.utrans_close;
-    if (build_options.icu_version > 0 and @hasDecl(c, std.fmt.comptimePrint(name ++ "_{d}", .{build_options.icu_version})))
-        break :blk @field(c, std.fmt.comptimePrint(name ++ "_{d}", .{build_options.icu_version}));
-    @compileError("ICU function '" ++ name ++ "' not found");
+    const name = if (build_options.icu_version > 0)
+        std.fmt.comptimePrint("utrans_close_{d}", .{build_options.icu_version})
+    else
+        "utrans_close";
+    break :blk @extern(*const @TypeOf(c.utrans_close), .{ .name = name });
 };
 
 pub const utrans_clone = blk: {
-    const name = "utrans_clone";
-    @setEvalBranchQuota(2000);
-    if (@hasDecl(c, name)) break :blk c.utrans_clone;
-    if (build_options.icu_version > 0 and @hasDecl(c, std.fmt.comptimePrint(name ++ "_{d}", .{build_options.icu_version})))
-        break :blk @field(c, std.fmt.comptimePrint(name ++ "_{d}", .{build_options.icu_version}));
-    @compileError("ICU function '" ++ name ++ "' not found");
+    const name = if (build_options.icu_version > 0)
+        std.fmt.comptimePrint("utrans_clone_{d}", .{build_options.icu_version})
+    else
+        "utrans_clone";
+    break :blk @extern(*const @TypeOf(c.utrans_clone), .{ .name = name });
 };
 
 pub const utrans_transUChars = blk: {
-    const name = "utrans_transUChars";
-    @setEvalBranchQuota(2000);
-    if (@hasDecl(c, name)) break :blk c.utrans_transUChars;
-    if (build_options.icu_version > 0 and @hasDecl(c, std.fmt.comptimePrint(name ++ "_{d}", .{build_options.icu_version})))
-        break :blk @field(c, std.fmt.comptimePrint(name ++ "_{d}", .{build_options.icu_version}));
-    @compileError("ICU function '" ++ name ++ "' not found");
+    const name = if (build_options.icu_version > 0)
+        std.fmt.comptimePrint("utrans_transUChars_{d}", .{build_options.icu_version})
+    else
+        "utrans_transUChars";
+    break :blk @extern(*const @TypeOf(c.utrans_transUChars), .{ .name = name });
 };

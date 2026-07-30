@@ -1,10 +1,11 @@
-FROM arm64v8/almalinux:10
+FROM almalinux:10
 
 RUN dnf install -y epel-release && dnf install -y sqlite-devel libicu-devel gcc wget xz && dnf clean all
 
-RUN wget -q https://ziglang.org/download/0.16.0/zig-aarch64-linux-0.16.0.tar.xz && \
-    tar xf zig-aarch64-linux-0.16.0.tar.xz -C /usr/local && \
-    ln -s /usr/local/zig-aarch64-linux-0.16.0/zig /usr/local/bin/zig && \
-    rm zig-aarch64-linux-0.16.0.tar.xz
+RUN ARCH=$(uname -m) && \
+    wget -q "https://ziglang.org/download/0.16.0/zig-${ARCH}-linux-0.16.0.tar.xz" && \
+    tar xf "zig-${ARCH}-linux-0.16.0.tar.xz" -C /usr/local && \
+    ln -s "/usr/local/zig-${ARCH}-linux-0.16.0/zig" /usr/local/bin/zig && \
+    rm "zig-${ARCH}-linux-0.16.0.tar.xz"
 
 WORKDIR /workspace

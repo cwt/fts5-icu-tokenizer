@@ -1,22 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
-const icu_funcs = [_][]const u8{
-    "ubrk_open",
-    "ubrk_close",
-    "ubrk_clone",
-    "ubrk_setText",
-    "ubrk_first",
-    "ubrk_next",
-    "ubrk_getRuleStatus",
-    "u_strToUTF8WithSub",
-    "u_strToUTF8",
-    "utrans_openU",
-    "utrans_close",
-    "utrans_clone",
-    "utrans_transUChars",
-};
-
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.option(std.builtin.OptimizeMode, "optimize", "Optimization mode") orelse .ReleaseFast;
@@ -28,7 +12,8 @@ pub fn build(b: *std.Build) void {
     const lto_enabled = !target.result.os.tag.isDarwin();
     const is_macos = builtin.os.tag.isDarwin();
 
-    // Detect ICU major version on Linux for linker symbol aliases
+    // Detect ICU major version on Linux so c_icu.zig can emit
+    // versioned symbol references (ubrk_open_77 etc.) at compile time.
     const icu_ver: u32 = if (!is_macos) blk: {
         const result = b.run(&.{ "sh", "-c", "grep -o '#define U_ICU_VERSION_MAJOR_NUM [0-9]*' /usr/include/unicode/uvernum.h | grep -o '[0-9]*'" });
         break :blk std.fmt.parseInt(u32, std.mem.trim(u8, result, " \n\r"), 10) catch 0;
@@ -36,19 +21,9 @@ pub fn build(b: *std.Build) void {
 
     const has_ubrk_clone = icu_ver == 0 or icu_ver >= 69;
 
-    // On Linux with versioned ICU symbols, generate assembly aliases.
-    // Skip functions that don't exist in the detected ICU version.
-    const icu_alias_lp = if (icu_ver > 0) blk: {
-        var buf: [4096]u8 = undefined;
-        var pos: usize = 0;
-        for (icu_funcs) |f| {
-            if (std.mem.eql(u8, f, "ubrk_clone") and !has_ubrk_clone) continue;
-            const line = std.fmt.bufPrint(buf[pos..], ".globl {s}\n.type {s}, @function\n{s}:\n\tb {s}_{d}\n", .{ f, f, f, f, icu_ver }) catch unreachable;
-            pos += line.len;
-        }
-        const alias_step = b.addWriteFile("icu_aliases.s", buf[0..pos]);
-        break :blk alias_step.getDirectory().path(b, "icu_aliases.s");
-    } else null;
+    // c_icu.zig resolves versioned ICU symbol names (e.g. ubrk_open_77) at
+    // compile time via @extern, so no assembly-level alias trampolines are
+    // needed. This works portably across every target architecture.
 
     // ICU options shared with c_icu.zig
     const icu_opts = b.addOptions();
@@ -94,7 +69,6 @@ pub fn build(b: *std.Build) void {
     c_mod.linkSystemLibrary("icuuc", .{});
     c_mod.linkSystemLibrary("icudata", .{});
     c_mod.link_libc = true;
-    if (icu_alias_lp) |lp| c_mod.addAssemblyFile(lp);
 
     const c_icu_mod = b.createModule(.{
         .root_source_file = b.path("src/c_icu.zig"),

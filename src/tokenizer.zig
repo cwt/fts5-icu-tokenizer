@@ -1,8 +1,11 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const c = @import("c");
 const icu = @import("c_icu");
 const rules = @import("rules.zig");
 const build_options = @import("build_options");
+
+const has_ubrk_clone = if (builtin.os.tag.isDarwin()) true else c.U_ICU_VERSION_MAJOR_NUM >= 69;
 
 pub const IcuTokenizer = struct {
     pBreakIterator: ?*c.UBreakIterator,
@@ -301,7 +304,7 @@ pub fn tokenizeText(
     // Bug #11: use the `icu.ubrk_clone` resolver (which also resolves versioned
     // symbols) instead of `c.ubrk_clone` directly, matching every other ICU
     // call and removing the dead `icu.ubrk_clone` resolver.
-    const pBreakIterator = if (build_options.has_ubrk_clone)
+    const pBreakIterator = if (has_ubrk_clone)
         icu.ubrk_clone(baseBreakIterator, &clone_status)
     else blk: {
         const locale_z = try allocator.dupeZ(u8, tokenizer.locale_slice);
@@ -606,7 +609,7 @@ test "tokenizeText large text SBO fallback" {
 }
 
 test "tokenizeText small input zero heap allocations (SBO)" {
-    if (!build_options.has_ubrk_clone) return error.SkipZigTest;
+    if (!has_ubrk_clone) return error.SkipZigTest;
 
     const testing_allocator = std.testing.allocator;
 

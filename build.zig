@@ -12,32 +12,15 @@ pub fn build(b: *std.Build) void {
     const lto_enabled = !target.result.os.tag.isDarwin();
     const is_macos = builtin.os.tag.isDarwin();
 
-    // Detect ICU major version on Linux so c_icu.zig can emit
-    // versioned symbol references (ubrk_open_77 etc.) at compile time.
-    const icu_ver: u32 = if (!is_macos) blk: {
-        const result = b.run(&.{ "sh", "-c", "grep -o '#define U_ICU_VERSION_MAJOR_NUM [0-9]*' /usr/include/unicode/uvernum.h | grep -o '[0-9]*'" });
-        break :blk std.fmt.parseInt(u32, std.mem.trim(u8, result, " \n\r"), 10) catch 0;
-    } else 0;
-
-    const has_ubrk_clone = icu_ver == 0 or icu_ver >= 69;
-
-    // c_icu.zig resolves versioned ICU symbol names (e.g. ubrk_open_77) at
-    // compile time via @extern, so no assembly-level alias trampolines are
-    // needed. This works portably across every target architecture.
-
-    // ICU options shared with c_icu.zig
-    const icu_opts = b.addOptions();
-    icu_opts.addOption(u32, "icu_version", icu_ver);
-    icu_opts.addOption(bool, "has_ubrk_clone", has_ubrk_clone);
-    const icu_options_mod = icu_opts.createModule();
+    // c_icu.zig reads U_ICU_VERSION_MAJOR_NUM from the translateC module at
+    // comptime; tokenizer.zig also derives has_ubrk_clone that way.  No
+    // build-time ICU version detection or assembly aliases are needed.
 
     // Build options module for default library
     const options = b.addOptions();
     options.addOption([]const u8, "locale", locale);
     options.addOption([]const u8, "api_version", api_version);
     options.addOption([]const u8, "version", version_str);
-    options.addOption(u32, "icu_version", icu_ver);
-    options.addOption(bool, "has_ubrk_clone", has_ubrk_clone);
     const options_mod = options.createModule();
 
     // Translate-C step for SQLite and ICU headers
@@ -76,7 +59,6 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .imports = &.{
             .{ .name = "c", .module = c_mod },
-            .{ .name = "build_options", .module = icu_options_mod },
         },
     });
 
@@ -133,8 +115,6 @@ pub fn build(b: *std.Build) void {
     legacy_options.addOption([]const u8, "locale", locale);
     legacy_options.addOption([]const u8, "api_version", "v1");
     legacy_options.addOption([]const u8, "version", version_str);
-    legacy_options.addOption(u32, "icu_version", icu_ver);
-    legacy_options.addOption(bool, "has_ubrk_clone", has_ubrk_clone);
 
     const legacy_root_module = b.createModule(.{
         .root_source_file = b.path("src/fts5_icu.zig"),
@@ -164,8 +144,6 @@ pub fn build(b: *std.Build) void {
         loc_options.addOption([]const u8, "locale", loc);
         loc_options.addOption([]const u8, "api_version", "v2");
         loc_options.addOption([]const u8, "version", version_str);
-        loc_options.addOption(u32, "icu_version", icu_ver);
-        loc_options.addOption(bool, "has_ubrk_clone", has_ubrk_clone);
 
         const loc_root = b.createModule(.{
             .root_source_file = b.path("src/fts5_icu.zig"),
@@ -192,8 +170,6 @@ pub fn build(b: *std.Build) void {
         loc_leg_options.addOption([]const u8, "locale", loc);
         loc_leg_options.addOption([]const u8, "api_version", "v1");
         loc_leg_options.addOption([]const u8, "version", version_str);
-        loc_leg_options.addOption(u32, "icu_version", icu_ver);
-        loc_leg_options.addOption(bool, "has_ubrk_clone", has_ubrk_clone);
 
         const loc_leg_root = b.createModule(.{
             .root_source_file = b.path("src/fts5_icu.zig"),

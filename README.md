@@ -24,7 +24,7 @@ This project was originally written in C with CMake. The rewrite to **Zig 0.16.0
 
 ### 4. Unified Codebase for FTS5 API v1 and v2
 - **Old C Problem**: Supporting legacy FTS5 API v1 (for older RHEL / SQLite installations) alongside API v2 required maintaining duplicated C files (`fts5_icu.c` vs `fts5_icu_legacy.c`) and fragile macro token-pasting (`PASTE_IMPL`).
-- **Zig Solution**: A single, clean Zig codebase ([src/fts5_icu.zig](file:///Users/cwt/Projects/fts5-icu-tokenizer/src/fts5_icu.zig)) exports both v2 and legacy v1 extension entrypoints natively, controlled cleanly via `build.zig` build options.
+- **Zig Solution**: A single, clean Zig codebase (`src/fts5_icu.zig`) exports both v2 and legacy v1 extension entrypoints natively, controlled cleanly via `build.zig` build options.
 
 ### 5. Pure Zig C-Interop — No C Wrappers Needed
 - **Old C Problem**: Calling ICU functions from C required a separate `icu_helper.c` file with thin wrapper functions to avoid symbol conflicts.
@@ -87,15 +87,15 @@ This project was originally written in C with CMake. The rewrite to **Zig 0.16.0
 zig build
 ```
 This produces shared dynamic libraries in `zig-out/lib/`:
-- `libfts5_icu.dylib` (or `.so` / `.dll`) — Universal multi-language tokenizer (v2 & legacy v1 entrypoints)
-- `libfts5_icu_ja.dylib` — Japanese (`icu_ja`)
-- `libfts5_icu_zh.dylib` — Chinese (`icu_zh`)
-- `libfts5_icu_th.dylib` — Thai (`icu_th`)
-- `libfts5_icu_ko.dylib` — Korean (`icu_ko`)
-- `libfts5_icu_ar.dylib` — Arabic (`icu_ar`)
-- `libfts5_icu_ru.dylib` — Russian (`icu_ru`)
-- `libfts5_icu_he.dylib` — Hebrew (`icu_he`)
-- `libfts5_icu_el.dylib` — Greek (`icu_el`)
+- `libfts5_icu.so` (or `.dylib`) — Universal multi-language tokenizer (v2 & legacy v1 entrypoints)
+- `libfts5_icu_ja.so` — Japanese (`icu_ja`)
+- `libfts5_icu_zh.so` — Chinese (`icu_zh`)
+- `libfts5_icu_th.so` — Thai (`icu_th`)
+- `libfts5_icu_ko.so` — Korean (`icu_ko`)
+- `libfts5_icu_ar.so` — Arabic (`icu_ar`)
+- `libfts5_icu_ru.so` — Russian (`icu_ru`)
+- `libfts5_icu_he.so` — Hebrew (`icu_he`)
+- `libfts5_icu_el.so` — Greek (`icu_el`)
 
 ### 2. Run Tests
 ```bash
@@ -137,6 +137,41 @@ podman build -f .container/Containerfile.el9 -t fts5-icu:el9 .
 
 # Build inside container
 podman run --rm -v "$PWD:/workspace:Z" fts5-icu:f44 zig build
+```
+
+### Running Tests Inside Containers
+
+Once an image is built, mount the project and run the full test suite:
+
+```bash
+# Fedora 44 — zig from dnf, no extra download needed
+podman run --rm -v "$PWD:/workspace:Z" fts5-icu:f44 \
+    bash -c "zig build && bash scripts/test_all_legacy.sh"
+
+# Other images — zig is already pre-downloaded inside the image
+podman run --rm -v "$PWD:/workspace:Z" fts5-icu:debian \
+    bash -c "zig build && bash scripts/test_all_legacy.sh"
+podman run --rm -v "$PWD:/workspace:Z" fts5-icu:ubuntu \
+    bash -c "zig build && bash scripts/test_all_legacy.sh"
+podman run --rm -v "$PWD:/workspace:Z" fts5-icu:el10 \
+    bash -c "zig build && bash scripts/test_all_legacy.sh"
+podman run --rm -v "$PWD:/workspace:Z" fts5-icu:el9 \
+    bash -c "zig build && bash scripts/test_all_legacy.sh"
+```
+
+Each container rebuilds the project from scratch and runs every locale-specific
+tokenizer test against a real SQLite instance loaded via `.load`.  The `:Z`
+volume flag is required on SELinux-enabled hosts (Fedora, RHEL, AlmaLinux).
+
+A one-liner to build and test across all five distros:
+
+```bash
+for img in f44 debian ubuntu el10 el9; do
+    echo "=== fts5-icu:$img ==="
+    podman run --rm -v "$PWD:/workspace:Z" fts5-icu:$img \
+        bash -c "zig build 2>&1 | tail -1 && bash scripts/test_all_legacy.sh 2>&1 | grep -E 'SUCCESS|ERROR'"
+    echo
+done
 ```
 
 ---

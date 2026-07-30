@@ -225,10 +225,10 @@ SELECT fts5_icu_version(); -- Returns "6.0.3"
 | `zh` | `icu_zh` | `NFKD; Traditional-Simplified; Lower; NFKC` |
 | `th` | `icu_th` | `NFKD; Lower; NFKC` |
 | `ko` | `icu_ko` | `NFKD; Lower; NFKC` |
-| `ar` | `icu_ar` | `NFKD; Arabic-Latin; Lower; NFKC` |
-| `ru` | `icu_ru` | `NFKD; Cyrillic-Latin; Lower; NFKC` |
-| `he` | `icu_he` | `NFKD; Hebrew-Latin; Lower; NFKC` |
-| `el` | `icu_el` | `NFKD; Greek-Latin; Lower; NFKC` |
+| `ar` | `icu_ar` | `NFKD; Arabic-Latin; Latin-ASCII; Lower; NFKC` |
+| `ru` | `icu_ru` | `NFKD; Cyrillic-Latin; Latin-ASCII; Lower; NFKC` |
+| `he` | `icu_he` | `NFKD; Hebrew-Latin; Latin-ASCII; Lower; NFKC` |
+| `el` | `icu_el` | `NFKD; Greek-Latin; Latin-ASCII; Lower; NFKC` |
 | — | `icu` (Universal) | `NFKD; Arabic-Latin; Cyrillic-Latin; Hebrew-Latin; Greek-Latin; Latin-ASCII; Lower; NFKC; Traditional-Simplified; Katakana-Hiragana` |
 
 ---

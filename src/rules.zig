@@ -1,17 +1,17 @@
 const std = @import("std");
 
 pub const ICU_RULE_BASE = "NFKD; ";
+pub const ICU_RULE_LATIN_NORMALIZE = "Latin-ASCII; Lower; ";
 pub const ICU_RULE_JA = ICU_RULE_BASE ++ "Katakana-Hiragana; Lower; NFKC";
 pub const ICU_RULE_ZH = ICU_RULE_BASE ++ "Traditional-Simplified; Lower; NFKC";
 pub const ICU_RULE_TH = ICU_RULE_BASE ++ "Lower; NFKC";
 pub const ICU_RULE_KO = ICU_RULE_BASE ++ "Lower; NFKC";
-pub const ICU_RULE_AR = ICU_RULE_BASE ++ "Arabic-Latin; Lower; NFKC";
-pub const ICU_RULE_RU = ICU_RULE_BASE ++ "Cyrillic-Latin; Lower; NFKC";
-pub const ICU_RULE_HE = ICU_RULE_BASE ++ "Hebrew-Latin; Lower; NFKC";
-pub const ICU_RULE_EL = ICU_RULE_BASE ++ "Greek-Latin; Lower; NFKC";
+pub const ICU_RULE_AR = ICU_RULE_BASE ++ "Arabic-Latin; " ++ ICU_RULE_LATIN_NORMALIZE ++ "NFKC";
+pub const ICU_RULE_RU = ICU_RULE_BASE ++ "Cyrillic-Latin; " ++ ICU_RULE_LATIN_NORMALIZE ++ "NFKC";
+pub const ICU_RULE_HE = ICU_RULE_BASE ++ "Hebrew-Latin; " ++ ICU_RULE_LATIN_NORMALIZE ++ "NFKC";
+pub const ICU_RULE_EL = ICU_RULE_BASE ++ "Greek-Latin; " ++ ICU_RULE_LATIN_NORMALIZE ++ "NFKC";
 pub const ICU_RULE_DEFAULT = ICU_RULE_BASE ++ "Arabic-Latin; Cyrillic-Latin; Hebrew-Latin; " ++
-    "Greek-Latin; Latin-ASCII; " ++
-    "Lower; NFKC; Traditional-Simplified; " ++
+    "Greek-Latin; " ++ ICU_RULE_LATIN_NORMALIZE ++ "NFKC; Traditional-Simplified; " ++
     "Katakana-Hiragana";
 
 pub const LocaleInfo = struct {

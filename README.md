@@ -221,7 +221,7 @@ SELECT fts5_icu_version(); -- Returns "6.0.3"
 
 | Locale | Tokenizer Name | Default Transliteration Rules |
 |--------|----------------|-------------------------------|
-| `ja` | `icu_ja` | `NFKD; Katakana-Hiragana; Lower; NFKC` |
+| `ja` | `icu_ja` | `NFKD; Hiragana-Katakana; Lower; NFKC` |
 | `zh` | `icu_zh` | `NFKD; Traditional-Simplified; Lower; NFKC` |
 | `th` | `icu_th` | `NFKD; Lower; NFKC` |
 | `ko` | `icu_ko` | `NFKD; Lower; NFKC` |
@@ -229,7 +229,7 @@ SELECT fts5_icu_version(); -- Returns "6.0.3"
 | `ru` | `icu_ru` | `NFKD; Cyrillic-Latin; Latin-ASCII; Lower; NFKC` |
 | `he` | `icu_he` | `NFKD; Hebrew-Latin; Latin-ASCII; Lower; NFKC` |
 | `el` | `icu_el` | `NFKD; Greek-Latin; Latin-ASCII; Lower; NFKC` |
-| — | `icu` (Universal) | `NFKD; Arabic-Latin; Cyrillic-Latin; Hebrew-Latin; Greek-Latin; Latin-ASCII; Lower; NFKC; Traditional-Simplified; Katakana-Hiragana` |
+| — | `icu` (Universal) | `NFKD; Arabic-Latin; Cyrillic-Latin; Hebrew-Latin; Greek-Latin; Latin-ASCII; Lower; NFKC; Traditional-Simplified; Hiragana-Katakana` |
 
 ---
 

@@ -21,5 +21,5 @@ SELECT fts5_icu_version();
 -- Query the table
 SELECT * FROM test_universal_v2 WHERE test_universal_v2 MATCH '测试';
 SELECT * FROM test_universal_v2 WHERE test_universal_v2 MATCH 'francais';
-SELECT * FROM test_universal_v2 WHERE test_universal_v2 MATCH 'russkii';
+SELECT * FROM test_universal_v2 WHERE test_universal_v2 MATCH 'russkij';
 SELECT * FROM test_universal_v2 WHERE test_universal_v2 MATCH 'العربية';

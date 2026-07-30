@@ -206,12 +206,10 @@ pub fn tokenizeText(
     if (text.len == 0) return c.SQLITE_OK;
 
     const STACK_CAP = 512;
-    // UTF-16 is at most 2 units per UTF-8 byte, so size for 2*len + 1.
     const req_u16_cap = text.len * 2 + 1;
 
     var stack_utf16: [STACK_CAP]c.UChar = undefined;
     var stack_map: [STACK_CAP]i32 = undefined;
-    var stack_trans: [STACK_CAP * 2]c.UChar = undefined;
     var stack_dest: [STACK_CAP * 4]u8 = undefined;
 
     var heap_utf16: ?[]c.UChar = null;
@@ -232,15 +230,6 @@ pub fn tokenizeText(
         break :blk heap_map.?;
     };
 
-    var heap_trans: ?[]c.UChar = null;
-    defer if (heap_trans) |buf| allocator.free(buf);
-    var transBuf: []c.UChar = if (req_u16_cap <= STACK_CAP)
-        stack_trans[0..]
-    else blk: {
-        heap_trans = try allocator.alloc(c.UChar, 2048);
-        break :blk heap_trans.?;
-    };
-
     var heap_dest: ?[]u8 = null;
     defer if (heap_dest) |buf| allocator.free(buf);
     var destBuf: []u8 = if (req_u16_cap <= STACK_CAP)
@@ -250,10 +239,7 @@ pub fn tokenizeText(
         break :blk heap_dest.?;
     };
 
-    // Convert UTF-8 -> UTF-16. Use the std converter (bug #4): it is
-    // vectorized and battle-tested. It errors on malformed input, so fall back
-    // to a tolerant manual conversion that substitutes U+FFFD (preserving the
-    // previous behavior for the "malformed UTF-8 and emoji safety" test).
+    // Convert UTF-8 -> UTF-16
     var utf16_pos: usize = undefined;
     if (std.unicode.utf8ToUtf16Le(utf16_text_buffer, text)) |n| {
         utf16_pos = n;
@@ -299,11 +285,8 @@ pub fn tokenizeText(
         }
     }
 
-    // Thread Safety: Clone (or fresh-open on ICU < 69) break iterator for concurrent execution safety
+    // Clone break iterator for thread safety
     var clone_status: c.UErrorCode = c.U_ZERO_ERROR;
-    // Bug #11: use the `icu.ubrk_clone` resolver (which also resolves versioned
-    // symbols) instead of `c.ubrk_clone` directly, matching every other ICU
-    // call and removing the dead `icu.ubrk_clone` resolver.
     const pBreakIterator = if (has_ubrk_clone)
         icu.ubrk_clone(baseBreakIterator, &clone_status)
     else blk: {
@@ -314,24 +297,95 @@ pub fn tokenizeText(
     if (c.U_FAILURE(clone_status) or pBreakIterator == null) return c.SQLITE_ERROR;
     defer icu.ubrk_close(pBreakIterator);
 
-    // Thread Safety: also clone the transliterator. UTransliterator is not
-    // thread-safe, so the shared handle owned by IcuTokenizer must not be used
-    // concurrently. Clone it per call, mirroring the break-iterator clone above.
+    // Clone transliterator for thread safety
     var trans_clone_status: c.UErrorCode = c.U_ZERO_ERROR;
     const pClonedTransliterator = icu.utrans_clone(pTransliterator, &trans_clone_status);
     if (c.U_FAILURE(trans_clone_status) or pClonedTransliterator == null) return c.SQLITE_ERROR;
     defer icu.utrans_close(pClonedTransliterator);
 
-    var status: c.UErrorCode = c.U_ZERO_ERROR;
-    icu.ubrk_setText(pBreakIterator, utf16_text_buffer.ptr, @intCast(utf16_pos), &status);
-    if (c.U_FAILURE(status)) return c.SQLITE_ERROR;
+    // Pre-transliteration: normalize the entire input before word breaking.
+    // This prevents UBRK_WORD from fragmenting tokens when transliteration
+    // changes script properties (e.g. hiragana+ー is illegal but
+    // H->K normalizes to katakana where ー is valid, keeping tokens intact).
+    const req_norm_cap = utf16_pos * 3 + 64;
+    var stack_norm: [STACK_CAP * 3]c.UChar = undefined;
+    var stack_posmap: [STACK_CAP * 3 + 1]i32 = undefined;
+
+    var heap_norm: ?[]c.UChar = null;
+    defer if (heap_norm) |buf| allocator.free(buf);
+    var heap_posmap: ?[]i32 = null;
+    defer if (heap_posmap) |pm| allocator.free(pm);
+
+    var normText: []c.UChar = undefined;
+    var position_map: []i32 = undefined;
+
+    {
+        const use_stack = req_norm_cap <= STACK_CAP * 3;
+        const norm_cap = if (use_stack) STACK_CAP * 3 else req_norm_cap;
+
+        var cur_norm: []c.UChar = if (use_stack)
+            stack_norm[0..norm_cap]
+        else blk2: {
+            heap_norm = try allocator.alloc(c.UChar, norm_cap);
+            break :blk2 heap_norm.?;
+        };
+
+        @memcpy(cur_norm[0..utf16_pos], utf16_text_buffer[0..utf16_pos]);
+        cur_norm[utf16_pos] = 0;
+
+        var ts: c.UErrorCode = c.U_ZERO_ERROR;
+        var tlimit: i32 = @intCast(utf16_pos);
+        var tlen: i32 = @intCast(utf16_pos);
+        icu.utrans_transUChars(pClonedTransliterator, cur_norm.ptr, &tlen, @intCast(cur_norm.len), 0, &tlimit, &ts);
+        if (ts == c.U_BUFFER_OVERFLOW_ERROR) {
+            const need: usize = @as(usize, @intCast(tlen)) + 64;
+            if (use_stack) {
+                heap_norm = try allocator.alloc(c.UChar, need);
+                cur_norm = heap_norm.?;
+            } else {
+                heap_norm = try allocator.realloc(heap_norm.?, need);
+                cur_norm = heap_norm.?;
+            }
+            @memcpy(cur_norm[0..utf16_pos], utf16_text_buffer[0..utf16_pos]);
+            cur_norm[utf16_pos] = 0;
+            tlen = @intCast(utf16_pos);
+            tlimit = tlen;
+            ts = c.U_ZERO_ERROR;
+            icu.utrans_transUChars(pClonedTransliterator, cur_norm.ptr, &tlen, @intCast(cur_norm.len), 0, &tlimit, &ts);
+        }
+        if (c.U_FAILURE(ts)) return c.SQLITE_ERROR;
+
+        const norm_len: usize = @intCast(tlen);
+        normText = cur_norm[0..norm_len];
+
+        // Build position map: normalized UTF-16 position -> original UTF-16
+        // position. Proportional scaling is exact for 1:1 transforms (H<->K,
+        // Lower, NFKC) and a close monotonic approximation for expansions.
+        const pm_cap = norm_len + 1;
+        const pm = if (pm_cap <= STACK_CAP * 3 + 1)
+            stack_posmap[0..pm_cap]
+        else blk2: {
+            heap_posmap = try allocator.alloc(i32, pm_cap);
+            break :blk2 heap_posmap.?;
+        };
+        for (0..norm_len) |i| {
+            pm[i] = @intCast(@min(utf16_pos - 1, (i * utf16_pos) / norm_len));
+        }
+        pm[norm_len] = @intCast(utf16_pos);
+        position_map = pm;
+    }
+
+    // Set break iterator on the NORMALIZED text
+    var brk_status: c.UErrorCode = c.U_ZERO_ERROR;
+    icu.ubrk_setText(pBreakIterator, normText.ptr, @intCast(normText.len), &brk_status);
+    if (c.U_FAILURE(brk_status)) return c.SQLITE_ERROR;
 
     var token_start = icu.ubrk_first(pBreakIterator);
     while (true) {
         const token_end = icu.ubrk_next(pBreakIterator);
         if (token_end == c.UBRK_DONE) break;
 
-        if (token_start < 0 or token_end < 0 or @as(usize, @intCast(token_start)) >= utf16_pos or @as(usize, @intCast(token_end)) > utf16_pos) {
+        if (token_start < 0 or token_end < 0 or @as(usize, @intCast(token_start)) >= normText.len or @as(usize, @intCast(token_end)) > normText.len) {
             token_start = token_end;
             continue;
         }
@@ -342,82 +396,43 @@ pub fn tokenizeText(
             continue;
         }
 
-        const iStartByte = byte_offset_map[@intCast(token_start)];
-        const iEndByte = byte_offset_map[@intCast(token_end)];
+        const t_start: usize = @intCast(token_start);
+        const t_end: usize = @intCast(token_end);
+
+        // Map normalized token positions back to original byte offsets
+        const orig_start_u16 = position_map[t_start];
+        const orig_end_u16 = position_map[t_end];
+        const iStartByte = byte_offset_map[@intCast(orig_start_u16)];
+        const iEndByte = byte_offset_map[@intCast(orig_end_u16)];
         const nTokenByte = iEndByte - iStartByte;
         if (nTokenByte <= 0) {
             token_start = token_end;
             continue;
         }
 
-        const nSrc: usize = @intCast(token_end - token_start);
+        const nSrc: usize = t_end - t_start;
         if (nSrc == 0) {
             token_start = token_end;
             continue;
         }
 
-        const reqBufSize = nSrc * 6 + 64;
-        if (transBuf.len < reqBufSize) {
-            if (heap_trans) |ht| {
-                heap_trans = try allocator.realloc(ht, reqBufSize);
-                transBuf = heap_trans.?;
-            } else {
-                heap_trans = try allocator.alloc(c.UChar, reqBufSize);
-                transBuf = heap_trans.?;
-            }
-        }
-
-        const copyLen = @min(nSrc, transBuf.len - 1);
-        const start_idx: usize = @intCast(token_start);
-        @memcpy(transBuf[0..copyLen], utf16_text_buffer[start_idx .. start_idx + copyLen]);
-        transBuf[copyLen] = 0;
-
-        status = c.U_ZERO_ERROR;
-        var limit: i32 = @intCast(copyLen);
-        var outLen: i32 = @intCast(copyLen);
-        icu.utrans_transUChars(pClonedTransliterator, transBuf.ptr, &outLen, @intCast(transBuf.len), 0, &limit, &status);
-        if (status == c.U_BUFFER_OVERFLOW_ERROR) {
-            // Transliteration expanded beyond the current buffer (bug #2): grow
-            // to the required length and retry, instead of silently dropping
-            // the token. `outLen` holds the length ICU needs.
-            const need: usize = @as(usize, @intCast(outLen)) + 64;
-            if (heap_trans) |ht| {
-                heap_trans = try allocator.realloc(ht, need);
-            } else {
-                heap_trans = try allocator.alloc(c.UChar, need);
-            }
-            transBuf = heap_trans.?;
-            @memcpy(transBuf[0..copyLen], utf16_text_buffer[start_idx .. start_idx + copyLen]);
-            transBuf[copyLen] = 0;
-            outLen = @intCast(copyLen);
-            limit = outLen;
-            status = c.U_ZERO_ERROR;
-            icu.utrans_transUChars(pClonedTransliterator, transBuf.ptr, &outLen, @intCast(transBuf.len), 0, &limit, &status);
-        }
-        if (c.U_FAILURE(status)) {
-            token_start = token_end;
-            continue;
-        }
-
-        const validOutLen: usize = @intCast(@max(0, outLen));
-
-        const reqDestSize = validOutLen * 4 + 64;
-        if (destBuf.len < reqDestSize) {
+        // Convert the normalized token (UTF-16) to UTF-8
+        var utf8_len: i32 = 0;
+        const reqDest = nSrc * 4 + 64;
+        if (destBuf.len < reqDest) {
             if (heap_dest) |hd| {
-                heap_dest = try allocator.realloc(hd, reqDestSize);
+                heap_dest = try allocator.realloc(hd, reqDest);
                 destBuf = heap_dest.?;
             } else {
-                heap_dest = try allocator.alloc(u8, reqDestSize);
+                heap_dest = try allocator.alloc(u8, reqDest);
                 destBuf = heap_dest.?;
             }
         }
 
-        var utf8Len: i32 = 0;
-        status = c.U_ZERO_ERROR;
-        _ = icu.u_strToUTF8WithSub(destBuf.ptr, @intCast(destBuf.len), &utf8Len, transBuf.ptr, @intCast(validOutLen), 0xFFFD, null, &status);
-
-        if (status == c.U_BUFFER_OVERFLOW_ERROR or (c.U_FAILURE(status) and utf8Len > @as(i32, @intCast(destBuf.len)))) {
-            const newDestSize: usize = @intCast(utf8Len + 64);
+        var conv_status: c.UErrorCode = c.U_ZERO_ERROR;
+        _ = icu.u_strToUTF8WithSub(destBuf.ptr, @intCast(destBuf.len), &utf8_len, normText[t_start..].ptr, @intCast(nSrc), 0xFFFD, null, &conv_status);
+        if (conv_status == c.U_BUFFER_OVERFLOW_ERROR or (c.U_FAILURE(conv_status) and utf8_len > @as(i32, @intCast(destBuf.len)))) {
+            const newDestSize: usize = @intCast(utf8_len + 64);
             if (heap_dest) |hd| {
                 heap_dest = try allocator.realloc(hd, newDestSize);
                 destBuf = heap_dest.?;
@@ -425,13 +440,13 @@ pub fn tokenizeText(
                 heap_dest = try allocator.alloc(u8, newDestSize);
                 destBuf = heap_dest.?;
             }
-            utf8Len = 0;
-            status = c.U_ZERO_ERROR;
-            _ = icu.u_strToUTF8WithSub(destBuf.ptr, @intCast(destBuf.len), &utf8Len, transBuf.ptr, @intCast(validOutLen), 0xFFFD, null, &status);
+            utf8_len = 0;
+            conv_status = c.U_ZERO_ERROR;
+            _ = icu.u_strToUTF8WithSub(destBuf.ptr, @intCast(destBuf.len), &utf8_len, normText[t_start..].ptr, @intCast(nSrc), 0xFFFD, null, &conv_status);
         }
 
-        if (!c.U_FAILURE(status) and utf8Len > 0) {
-            const rc = xToken(pCtx, 0, destBuf.ptr, utf8Len, iStartByte, iEndByte);
+        if (!c.U_FAILURE(conv_status) and utf8_len > 0) {
+            const rc = xToken(pCtx, 0, destBuf.ptr, utf8_len, iStartByte, iEndByte);
             if (rc != c.SQLITE_OK) {
                 return rc;
             }
@@ -855,4 +870,33 @@ test "transliterateString works without u_strFromUTF8 (bug #12)" {
     // Greek must be Latinized to pure ASCII (no u_strFromUTF8 involved).
     for (out) |b| try std.testing.expect(b < 0x80);
     try std.testing.expect(std.mem.indexOf(u8, out, "ellenika") != null);
+}
+
+test "ja pre-transliteration: hiragana+ー produces single token" {
+    const gpa = std.testing.allocator;
+
+    const tok = try IcuTokenizer.create(gpa, "ja");
+    defer tok.destroy(gpa);
+
+    // Katakana input: should be one token
+    var cap_kata: Capture = .{ .gpa = gpa, .tokens = .empty };
+    defer {
+        for (cap_kata.tokens.items) |t| gpa.free(t);
+        cap_kata.tokens.deinit(gpa);
+    }
+    _ = try tokenizeText(gpa, tok, "スーパーマーケット", null, &cap_kata, captureTokenCallback);
+    try std.testing.expectEqual(@as(usize, 1), cap_kata.tokens.items.len);
+
+    // Hiragana+ー input: must also be one token (without pre-transliteration,
+    // UBRK_WORD would fragment this into 8 pieces)
+    var cap_hira: Capture = .{ .gpa = gpa, .tokens = .empty };
+    defer {
+        for (cap_hira.tokens.items) |t| gpa.free(t);
+        cap_hira.tokens.deinit(gpa);
+    }
+    _ = try tokenizeText(gpa, tok, "すーぱーまーけっと", null, &cap_hira, captureTokenCallback);
+    try std.testing.expectEqual(@as(usize, 1), cap_hira.tokens.items.len);
+
+    // Both paths converge to the same normalized token
+    try std.testing.expectEqualStrings(cap_kata.tokens.items[0], cap_hira.tokens.items[0]);
 }

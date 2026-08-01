@@ -1193,6 +1193,41 @@ test "transliterateString ar/he output is pure ASCII (bug #18)" {
     for (he) |b| try std.testing.expect(b < 0x80);
 }
 
+// Bug #14 + #18 through the UNIVERSAL tokenizer (empty locale, ICU_RULE_DEFAULT
+// chains). Both fixes are gated on rule strings (Russian-Latin/BGN,
+// Arabic-Latin), so they must hold for the universal tokenizer exactly as for
+// the locale-specific libraries: Russian letters stay distinct (borshch/shar/
+// zhar/moy/moi) and Arabic tokens are pure ASCII.
+test "universal tokenizer applies Russian BGN and Arabic mark strip (bug #14/#18)" {
+    const gpa = std.testing.allocator;
+
+    const tok = try IcuTokenizer.create(gpa, "");
+    defer tok.destroy(gpa);
+
+    var cap: Capture = .{ .gpa = gpa, .tokens = .empty };
+    defer {
+        for (cap.tokens.items) |t| gpa.free(t);
+        cap.tokens.deinit(gpa);
+    }
+    const text = "борщ шар жар мой мои العربية عربية";
+    const rc = try tokenizeText(gpa, tok, text, null, &cap, captureTokenCallback);
+    try std.testing.expectEqual(@as(c_int, c.SQLITE_OK), rc);
+
+    try std.testing.expect(cap.tokens.items.len >= 7);
+    var found = [_]bool{false} ** 7;
+    for (cap.tokens.items) |t| {
+        for (t) |b| try std.testing.expect(b < 0x80);
+        if (std.mem.eql(u8, t, "borshch")) found[0] = true;
+        if (std.mem.eql(u8, t, "shar")) found[1] = true;
+        if (std.mem.eql(u8, t, "zhar")) found[2] = true;
+        if (std.mem.eql(u8, t, "moy")) found[3] = true;
+        if (std.mem.eql(u8, t, "moi")) found[4] = true;
+        if (std.mem.eql(u8, t, "alrbyt")) found[5] = true;
+        if (std.mem.eql(u8, t, "rbyt")) found[6] = true;
+    }
+    for (found) |f| try std.testing.expect(f);
+}
+
 // Bug #12: `u_strFromUTF8` was removed (dead; utf8ToUtf16Alloc uses the std
 // UTF-16 converter). This confirms the live transliteration path still works end
 // to end — rule string -> std UTF-16 conversion -> utrans -> UTF-8 — with no

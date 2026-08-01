@@ -829,15 +829,17 @@ library exports only its 4 entry points. This matches the original C version
 A second audit pass, driven by an empirical probe harness running against
 Homebrew ICU 78 and an AlmaLinux 9 container (ICU 67.1.0), found two HIGH
 correctness bugs and three LOW issues. All five are described below with their
-verified behavior; the HIGH fixes (and #17) are implemented in the working tree
-with regression tests, but not yet committed.
+verified behavior; the HIGH fixes (and #17) are implemented and committed with
+regression tests, verified with `zig build test` (26/26) on both ICU 78
+(Homebrew) and ICU 67.1.0 (el9 container), plus the full `zig build` and the
+v1/v2 SQLite test suites.
 
 | Bug | Severity | Status | Fix commit |
 |-----|----------|--------|-----------
-| #14 | HIGH | OPEN | — |
-| #15 | HIGH | OPEN | — |
+| #14 | HIGH | FIXED | 05c52e983470 |
+| #15 | HIGH | FIXED | 05c52e983470 |
 | #16 | LOW | OPEN | — |
-| #17 | LOW | FIXED (uncommitted) | — |
+| #17 | LOW | FIXED | 05c52e983470 |
 | #18 | LOW | OPEN | — |
 
 > **Note:** a stale untracked backup `src/tokenizer.zig.orig` (left over from an

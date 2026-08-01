@@ -241,10 +241,32 @@ ALTER TABLE new_table RENAME TO old_table;
 | `th` | `icu_th` | `NFKD; Lower; NFKC` |
 | `ko` | `icu_ko` | `NFKD; Lower; NFKC` |
 | `ar` | `icu_ar` | `NFKD; Arabic-Latin; Latin-ASCII; Lower; NFKC` |
-| `ru` | `icu_ru` | `NFKD; Cyrillic-Latin; Latin-ASCII; Lower; NFKC` |
+| `ru` | `icu_ru` | `NFKD; Russian-Latin/BGN; Latin-ASCII; Lower; NFKC` |
 | `he` | `icu_he` | `NFKD; Hebrew-Latin; Latin-ASCII; Lower; NFKC` |
 | `el` | `icu_el` | `NFKD; Greek-Latin; Latin-ASCII; Lower; NFKC` |
-| — | `icu` (Universal) | `NFKD; Arabic-Latin; Cyrillic-Latin; Hebrew-Latin; Greek-Latin; Latin-ASCII; Lower; NFKC; Traditional-Simplified; Hiragana-Katakana` |
+| — | `icu` (Universal) | `NFKD; Arabic-Latin; Russian-Latin/BGN; Hebrew-Latin; Greek-Latin; Latin-ASCII; Lower; NFKC; Traditional-Simplified; Hiragana-Katakana` |
+
+### Transliteration Mapping Notes
+
+These rules are verified identically on ICU 78 (Homebrew) and ICU 67.1.0 (AlmaLinux 9).
+
+- **Russian — `Russian-Latin/BGN` (not `Cyrillic-Latin`)**: plain `Cyrillic-Latin`
+  collapses distinct letters (щ/ш/с → `s`, ж/з → `z`), so борщ/борс → `bors`
+  and жар/зар → `zar` become identical tokens. BGN keeps them distinct:
+  борщ → `borshch`, шар → `shar`, жар → `zhar`, щи → `shchi`.
+- **Russian — й pre-map**: BGN maps й → `i`, which would collide мой/мои → `moi`.
+  The tokenizer pre-maps Cyrillic й/Й (U+0439/U+0419) to `y` in the UTF-16
+  domain before transliteration (1:1 units, so byte offsets stay exact):
+  мой → `moy`, мои → `moi`, русский → `russkiy`, ещё → `yeshche`.
+- **Arabic/Hebrew — modifier-letter strip**: `Arabic-Latin` emits U+02BF (ʿ,
+  hamza) and `Hebrew-Latin` can emit U+02BB (ʻ, ayin) / U+2019 (ʼ), which
+  `Latin-ASCII` leaves in place. These are stripped from token text so tokens
+  are pure ASCII: العربية → `alrbyt` (not `alʿrbyt`), قرآن → `qran`,
+  سؤال → `swal`. Only the token text is compacted — byte ranges still point at
+  the original word.
+- The universal tokenizer (`icu`, empty locale) applies the same mappings,
+  since its rule chain includes the `Russian-Latin/BGN` and `Arabic-Latin`
+  legs.
 
 ---
 

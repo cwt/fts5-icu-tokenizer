@@ -829,18 +829,18 @@ library exports only its 4 entry points. This matches the original C version
 A second audit pass, driven by an empirical probe harness running against
 Homebrew ICU 78 and an AlmaLinux 9 container (ICU 67.1.0), found two HIGH
 correctness bugs and three LOW issues. All five are described below with their
-verified behavior; the HIGH fixes (and #17) are implemented and committed with
-regression tests, verified with `zig build test` (26/26) on both ICU 78
-(Homebrew) and ICU 67.1.0 (el9 container), plus the full `zig build` and the
-v1/v2 SQLite test suites.
+verified behavior, implemented and committed with regression tests, verified
+with `zig build test` (30/30 on ICU 78; 29/30 on ICU 67.1.0 — one pre-existing
+skip, the bug #11 clone-path test, which requires ICU ≥ 69), plus the full
+`zig build` and the v1/v2 SQLite test suites.
 
 | Bug | Severity | Status | Fix commit |
 |-----|----------|--------|-----------
 | #14 | HIGH | FIXED | 05c52e983470 |
 | #15 | HIGH | FIXED | 05c52e983470 |
-| #16 | LOW | OPEN | — |
+| #16 | LOW | FIXED | 6d623ecfe43e |
 | #17 | LOW | FIXED | 05c52e983470 |
-| #18 | LOW | OPEN | — |
+| #18 | LOW | FIXED | 6d623ecfe43e |
 
 > **Note:** a stale untracked backup `src/tokenizer.zig.orig` (left over from an
 > earlier draft) was deleted during this pass.
@@ -937,7 +937,7 @@ the BGN rules of bug #14, including the 1→5 щ expansion).
 ## 16. [LOW] Invalid locale silently accepted (fallback warning not treated as error)
 
 **File:** `src/tokenizer.zig`
-**Lines:** 37–39 (`IcuTokenizer.create`)
+**Lines:** ~38–41 (`IcuTokenizer.create`), `isValidLocaleLanguage`
 
 ### Description
 
@@ -946,18 +946,33 @@ resolve (e.g. `"xx_YY"`), and the code checks only `U_FAILURE(status)`, which
 does not include warnings. The tokenizer is created successfully with root
 rules, and `tokenizeText` then silently produces unexpected tokens.
 
+**Verified (probes on ICU 78 and 67.1.0, identical):** the fallback warning
+fires for **every non-empty locale** — `ja`, `ru_RU`, `en_US`, `xx_YY`,
+`jp`, `C` all return −127, because word-break data lives in root. Only the
+empty string returns status 0. The status code therefore *cannot* distinguish
+a typo'd locale from a valid one, and rejecting `U_USING_FALLBACK_WARNING`
+outright would break every locale-specific build.
+
 ### Impact
 
 - Typos in the locale argument of `CREATE VIRTUAL TABLE` (e.g. `icu_ru_` or
   `icu_enu`) silently fall back to root segmentation instead of failing, so
   the failure mode is a hard-to-debug wrong-result rather than an error.
 
-### Suggested fix
+### Suggested fix (implemented)
 
-Treat `U_USING_FALLBACK_WARNING` as a failure in `create` (return
-`error.IcuBreakIteratorFailed`). Not implemented: SQLite's own C tokenizer
-does not reject such locales either, and rejecting them changes public
-behavior; the warning path is currently benign (root rules).
+Validate the locale **string** at create time (`isValidLocaleLanguage`):
+accept the empty locale (universal tokenizer), `"C"`/`"POSIX"` (legitimate
+system locales that resolve to root), any language prefix mapped by
+`rules.zig getLocaleInfo` (ja/jp, zh/cn, th, ko/kr, ar, ru, he/iw, el/gr —
+the aliases are not ICU language codes), or a language present in
+`uloc_getAvailable` (scanned via `uloc_countAvailable`, `uloc_getAvailable`).
+Anything else fails `IcuTokenizer.create` with `error.IcuInvalidLocale`
+(→ `SQLITE_ERROR` from `icuCreate`), covering both the baked
+`build_options.locale` and the per-table FTS5 argument. `uloc_getLanguage`
+is used to extract the language (so `en_US.UTF-8` → `en` is accepted).
+Regression tests: `xx`/`xx_YY`/`xyz` rejected; `jp`/`cn`/`kr`/
+`en_US.UTF-8`/`C`/`POSIX` accepted.
 
 ---
 
@@ -989,25 +1004,34 @@ transliterator.
 
 ## 18. [LOW] Arabic/Hebrew tokens retain non-ASCII modifier letters (ʿ, ʻ)
 
-**File:** `src/rules.zig`
-**Lines:** 9, 11 (`ICU_RULE_AR`, `ICU_RULE_HE`)
+**File:** `src/tokenizer.zig`
+**Lines:** `stripTranslitMarks`, token UTF-8 stage, `transliterateString`
 
 ### Description
 
-`Arabic-Latin` emits U+02BF (ʿ, hamza) and `Hebrew-Latin` emits U+02BB (ʻ,
-ayin) and U+2019 (ʼ). `Latin-ASCII` only maps letters, digits and basic
-punctuation, so these survive the pipeline; tokens like `alʿrbyt` and
-`haggim` contain non-ASCII bytes.
+`Arabic-Latin` emits U+02BF (ʿ) and `Hebrew-Latin` can emit U+02BB (ʻ) and
+U+2019 (ʼ). `Latin-ASCII` only maps letters, digits and basic punctuation,
+so the modifiers survive the pipeline.
+
+**Verified (probes on ICU 78 and 67.1.0, identical):** Arabic keeps U+02BF —
+العربية → `alʿrbyt` (bytes CA BF), عربية → `ʿrbyt`; hamza-on-alef words lose
+the hamza entirely (قرآن → `qran`, سؤال → `swal`). Hebrew-Latin output is
+already pure ASCII on both versions (אמונה → `'mwnh'`), but U+02BB/U+2019
+are stripped anyway to cover older builds.
 
 ### Impact
 
-- Tokens for Arabic/Hebrew are not pure ASCII, so case-insensitive ASCII
-  searches and URL-safe token handling behave inconsistently; the modifiers
-  must be typed exactly to match.
+- Tokens for Arabic are not pure ASCII, so case-insensitive ASCII searches
+  and URL-safe token handling behave inconsistently; the modifiers must be
+  typed exactly to match.
 
-### Suggested fix
+### Suggested fix (implemented)
 
-Post-map U+02BF, U+02BB and U+2019 to nothing (or to `'`) in the UTF-16
-domain, like the bug #14 pre-map. Inline transliterator rules cannot express
-this (see bug #14: `utrans_openU` rejects rule syntax). Not implemented —
-behavioral change for Arabic/Hebrew users; documented for a follow-up.
+Post-map U+02BF, U+02BB and U+2019 to nothing in the UTF-8 domain
+(`stripTranslitMarks`), applied to the token text in `tokenizeText` and to
+the result of `transliterateString`, gated on the rule string containing
+`Arabic-Latin`/`Hebrew-Latin`. Only the token *text* is compacted — the
+reported byte range still points at the original word and whitespace is
+untouched, so the position map (bug #15) holds exactly. Regression tests:
+Arabic tokenizeText produces pure-ASCII `alrbyt`/`rbyt`/`qran`/`swal`, and
+`transliterateString` returns pure ASCII for both ar and he rules.

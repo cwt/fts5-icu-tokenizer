@@ -1,6 +1,6 @@
 # FTS5 ICU Tokenizer for SQLite (Zig 0.16.0 Edition)
 
-Version **7.0.0**
+Version **7.1.0**
 
 This project provides custom FTS5 tokenizers for SQLite implemented in **Zig 0.16.0** using the International Components for Unicode (ICU) library to provide robust word segmentation and text normalization across multiple languages.
 
@@ -212,12 +212,12 @@ SELECT * FROM documents_th2 WHERE documents_th2 MATCH 'ภาษา';
 ### Querying Version
 ```sql
 .load ./zig-out/lib/libfts5_icu
-SELECT fts5_icu_version(); -- Returns "7.0.0"
+SELECT fts5_icu_version(); -- Returns "7.1.0"
 ```
 
 ### Upgrading from v6.x
 
-Version 7.0.0 changes the transliteration pipeline (pre-transliteration
+Version 7.0.0 changed the transliteration pipeline (pre-transliteration
 architecture, Latin-ASCII on locale-specific *-Latin rules, and reversed
 kana direction for Japanese). Existing FTS5 indexes built with v6.x
 tokenizers are **NOT compatible** — queries will miss matches because
@@ -229,6 +229,16 @@ INSERT INTO new_table(new_table) SELECT content FROM old_table;
 DROP TABLE old_table;
 ALTER TABLE new_table RENAME TO old_table;
 ```
+
+### Upgrading from v7.0.0
+
+Version 7.1.0 is a bug-fix release (Russian BGN mapping, Arabic/Hebrew
+modifier-letter strip, whitespace-anchored position map, locale
+validation) that **changes token forms** for Russian (русский → `russkiy`,
+мой → `moy`, борщ → `borshch`) and Arabic (العربية → `alrbyt`), and
+rejects unresolvable locales at table creation. FTS5 indexes built with
+v7.0.0 tokenizers are **NOT compatible** — rebuild your FTS5 tables after
+upgrading, using the same procedure shown above.
 
 ---
 

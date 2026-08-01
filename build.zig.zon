@@ -1,6 +1,6 @@
 .{
     .name = .fts5_icu_tokenizer,
-    .version = "7.0.0",
+    .version = "7.1.0",
     .fingerprint = 0x1a06cd2de93c7f1d,
     .minimum_zig_version = "0.16.0",
     .dependencies = .{},

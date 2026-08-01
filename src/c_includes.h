@@ -15,5 +15,6 @@
 #include <unicode/ubrk.h>
 #include <unicode/utrans.h>
 #include <unicode/uchar.h>
+#include <unicode/uloc.h>
 
 #endif

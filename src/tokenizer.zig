@@ -34,6 +34,10 @@ pub const IcuTokenizer = struct {
         const locale_c = try allocator.dupeZ(u8, locale);
         defer allocator.free(locale_c);
 
+        // Bug #16: reject locales ICU cannot resolve (e.g. typo'd "xx_YY"),
+        // which ubrk_open silently falls back to root for.
+        if (!isValidLocaleLanguage(locale_c.ptr)) return error.IcuInvalidLocale;
+
         tok.pBreakIterator = icu.ubrk_open(c.UBRK_WORD, locale_c.ptr, null, 0, &status);
         if (c.U_FAILURE(status) or tok.pBreakIterator == null) {
             return error.IcuBreakIteratorFailed;
@@ -144,7 +148,16 @@ pub fn transliterateString(allocator: std.mem.Allocator, input: []const u8, rule
         return error.Utf8ConvertFailed;
     }
 
-    return allocator.dupe(u8, buf_with_nul[0..@as(usize, @intCast(utf8_len))]);
+    // Bug #18: strip Arabic-Latin/Hebrew-Latin modifier letters (U+02BF/
+    // U+02BB/U+2019) so the returned string is pure ASCII.
+    const ar_he_latin = std.mem.indexOf(u8, rule_str, "Arabic-Latin") != null or
+        std.mem.indexOf(u8, rule_str, "Hebrew-Latin") != null;
+    const final_len: i32 = if (ar_he_latin)
+        stripTranslitMarks(buf_with_nul[0..@as(usize, @intCast(utf8_len))])
+    else
+        @intCast(utf8_len);
+
+    return allocator.dupe(u8, buf_with_nul[0..@as(usize, @intCast(final_len))]);
 }
 
 // Build the UTF-8 byte-offset map (utf16 index -> utf8 start byte) for `text`.
@@ -222,6 +235,62 @@ fn isSpaceLikeU16(ch: c.UChar) bool {
         (ch >= 0x2000 and ch <= 0x200A) or ch == 0x202F or ch == 0x205F or ch == 0x3000;
 }
 
+// Bug #16: validate a locale string before handing it to ICU. `ubrk_open`
+// reports U_USING_FALLBACK_WARNING for EVERY non-empty locale — even valid
+// ones like "ja" or "ru_RU", because word-break data lives in root — so the
+// status code cannot distinguish a typo'd locale from a good one (verified by
+// probe on ICU 78 and 67.1.0). Instead check that the locale's language is
+// either a supported alias (rules.zig) or a language ICU knows about
+// (uloc_getAvailable). The universal tokenizer's empty locale is always valid.
+fn isValidLocaleLanguage(locale_c: [*:0]const u8) bool {
+    const locale = std.mem.span(locale_c);
+    if (locale.len == 0) return true;
+    if (std.mem.eql(u8, locale, "C") or std.mem.eql(u8, locale, "POSIX")) return true;
+
+    var lang_buf: [16]u8 = undefined;
+    var st: c.UErrorCode = c.U_ZERO_ERROR;
+    const n = icu.uloc_getLanguage(locale_c, &lang_buf, lang_buf.len, &st);
+    if (c.U_FAILURE(st) or n < 0 or @as(usize, @intCast(n)) > lang_buf.len) return false;
+    const lang = lang_buf[0..@intCast(n)];
+
+    const aliases = [_][]const u8{ "ja", "jp", "zh", "cn", "th", "ko", "kr", "ar", "ru", "he", "iw", "el", "gr" };
+    for (aliases) |a| {
+        if (std.mem.eql(u8, lang, a)) return true;
+    }
+
+    const count = icu.uloc_countAvailable();
+    var i: i32 = 0;
+    while (i < count) : (i += 1) {
+        if (std.mem.eql(u8, lang, std.mem.span(icu.uloc_getAvailable(i)))) return true;
+    }
+    return false;
+}
+
+// Bug #18: Arabic-Latin emits U+02BF (ʿ) and Hebrew-Latin can emit U+02BB (ʻ)
+// and U+2019 (ʼ) modifier letters that Latin-ASCII leaves in place (verified
+// on ICU 78 and 67.1.0: Arabic keeps U+02BF; Hebrew output is already ASCII
+// on both, but the general case is covered here). Strip them from the token
+// text (UTF-8 CA BF, CA BB, E2 80 99) so ar/he tokens are pure ASCII and
+// Latin-spelled queries match. Only the token text is compacted — the
+// reported byte range still points at the original word. Returns the new
+// length of `buf` (<= original).
+fn stripTranslitMarks(buf: []u8) i32 {
+    var w: usize = 0;
+    var i: usize = 0;
+    while (i < buf.len) {
+        if (i + 1 < buf.len and buf[i] == 0xCA and (buf[i + 1] == 0xBF or buf[i + 1] == 0xBB)) {
+            i += 2;
+        } else if (i + 2 < buf.len and buf[i] == 0xE2 and buf[i + 1] == 0x80 and buf[i + 2] == 0x99) {
+            i += 3;
+        } else {
+            buf[w] = buf[i];
+            w += 1;
+            i += 1;
+        }
+    }
+    return @intCast(w);
+}
+
 pub fn tokenizeText(
     allocator: std.mem.Allocator,
     tokenizer: *IcuTokenizer,
@@ -285,6 +354,8 @@ pub fn tokenizeText(
     else
         tokenizer.locale_slice;
     const uses_russian_bgn = std.mem.indexOf(u8, rules.getRulesForLocale(effective_locale), "Russian-Latin/BGN") != null;
+    const uses_ar_he_latin = std.mem.indexOf(u8, rules.getRulesForLocale(effective_locale), "Arabic-Latin") != null or
+        std.mem.indexOf(u8, rules.getRulesForLocale(effective_locale), "Hebrew-Latin") != null;
 
     var baseBreakIterator = tokenizer.pBreakIterator.?;
     var pTransliterator = tokenizer.pTransliterator.?;
@@ -524,9 +595,18 @@ pub fn tokenizeText(
         }
 
         if (!c.U_FAILURE(conv_status) and utf8_len > 0) {
-            const rc = xToken(pCtx, 0, destBuf.ptr, utf8_len, iStartByte, iEndByte);
-            if (rc != c.SQLITE_OK) {
-                return rc;
+            // Bug #18: strip transliteration modifier letters (U+02BF/U+02BB/
+            // U+2019) from ar/he tokens so they are pure ASCII. This compacts
+            // only the token text; the byte range still points at the original
+            // word, and whitespace is unaffected, so the position map holds.
+            if (uses_ar_he_latin) {
+                utf8_len = stripTranslitMarks(destBuf[0..@intCast(utf8_len)]);
+            }
+            if (utf8_len > 0) {
+                const rc = xToken(pCtx, 0, destBuf.ptr, utf8_len, iStartByte, iEndByte);
+                if (rc != c.SQLITE_OK) {
+                    return rc;
+                }
             }
         }
 
@@ -1019,12 +1099,107 @@ test "tokenizeText expansion keeps byte offsets (bug #15)" {
     }
 }
 
+// Bug #16: garbage locales (e.g. "xx_YY") were silently accepted — ubrk_open
+// falls back to root rules for ANY non-empty locale (verified by probe on
+// ICU 78 and 67.1.0), so the fallback warning cannot reject them. Validation
+// now checks the locale's language against supported aliases and ICU's
+// available-locale list at create time; a bad locale fails fast instead of
+// silently tokenizing as English.
+test "create rejects unresolvable locale (bug #16)" {
+    const gpa = std.testing.allocator;
+
+    try std.testing.expectError(error.IcuInvalidLocale, IcuTokenizer.create(gpa, "xx"));
+    try std.testing.expectError(error.IcuInvalidLocale, IcuTokenizer.create(gpa, "xx_YY"));
+    try std.testing.expectError(error.IcuInvalidLocale, IcuTokenizer.create(gpa, "xyz"));
+}
+
+// Bug #16 (positive side): the rules.zig aliases (jp/cn/kr) are not ICU
+// language codes and "C"/"POSIX" are not in the available list, but they must
+// still create fine; likewise real locales with variants/encodings.
+test "create accepts supported aliases and real locales (bug #16)" {
+    const gpa = std.testing.allocator;
+
+    {
+        const tok = try IcuTokenizer.create(gpa, "jp");
+        defer tok.destroy(gpa);
+    }
+    {
+        const tok = try IcuTokenizer.create(gpa, "cn");
+        defer tok.destroy(gpa);
+    }
+    {
+        const tok = try IcuTokenizer.create(gpa, "kr");
+        defer tok.destroy(gpa);
+    }
+    {
+        const tok = try IcuTokenizer.create(gpa, "en_US.UTF-8");
+        defer tok.destroy(gpa);
+    }
+    {
+        const tok = try IcuTokenizer.create(gpa, "C");
+        defer tok.destroy(gpa);
+    }
+    {
+        const tok = try IcuTokenizer.create(gpa, "POSIX");
+        defer tok.destroy(gpa);
+    }
+}
+
+// Bug #18: Arabic-Latin leaves the modifier letter U+02BF (ʿ) in tokens
+// (probe: 'العربية' -> 'alʿrbyt'), so Arabic tokens were not pure ASCII and
+// Latin-spelled queries could not match them. ʿ is now stripped from the
+// token text (positions unchanged), so tokens are pure ASCII.
+test "tokenizeText Arabic tokens are pure ASCII (bug #18)" {
+    const gpa = std.testing.allocator;
+
+    const tok = try IcuTokenizer.create(gpa, "ar");
+    defer tok.destroy(gpa);
+
+    const text = "العربية عربية قرآن سؤال";
+    var cap: Capture = .{ .gpa = gpa, .tokens = .empty };
+    defer {
+        for (cap.tokens.items) |t| gpa.free(t);
+        cap.tokens.deinit(gpa);
+    }
+    const rc = try tokenizeText(gpa, tok, text, null, &cap, captureTokenCallback);
+    try std.testing.expectEqual(@as(c_int, c.SQLITE_OK), rc);
+
+    try std.testing.expect(cap.tokens.items.len >= 4);
+    for (cap.tokens.items) |t| {
+        for (t) |b| try std.testing.expect(b < 0x80);
+    }
+    var found = [_]bool{false} ** 4;
+    for (cap.tokens.items) |t| {
+        if (std.mem.eql(u8, t, "alrbyt")) found[0] = true;
+        if (std.mem.eql(u8, t, "rbyt")) found[1] = true;
+        if (std.mem.eql(u8, t, "qran")) found[2] = true;
+        if (std.mem.eql(u8, t, "swal")) found[3] = true;
+    }
+    for (found) |f| try std.testing.expect(f);
+}
+
+// Bug #18: transliterateString must also return pure ASCII for ar/he rules
+// (Hebrew-Latin may emit U+02BB/U+2019 on some ICU versions).
+test "transliterateString ar/he output is pure ASCII (bug #18)" {
+    const gpa = std.testing.allocator;
+
+    const ar = try transliterateString(gpa, "العربية", rules.ICU_RULE_AR);
+    defer gpa.free(ar);
+    for (ar) |b| try std.testing.expect(b < 0x80);
+    try std.testing.expect(std.mem.eql(u8, ar, "alrbyt"));
+
+    const he = try transliterateString(gpa, "אמונה", rules.ICU_RULE_HE);
+    defer gpa.free(he);
+    for (he) |b| try std.testing.expect(b < 0x80);
+}
+
 // Bug #12: `u_strFromUTF8` was removed (dead; utf8ToUtf16Alloc uses the std
 // UTF-16 converter). This confirms the live transliteration path still works end
 // to end — rule string -> std UTF-16 conversion -> utrans -> UTF-8 — with no
 // dependency on u_strFromUTF8.
 test "transliterateString works without u_strFromUTF8 (bug #12)" {
     const gpa = std.testing.allocator;
+
     const out = try transliterateString(gpa, "Ελληνικά", rules.ICU_RULE_DEFAULT);
     defer gpa.free(out);
     try std.testing.expect(out.len > 0);

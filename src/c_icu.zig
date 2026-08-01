@@ -108,3 +108,27 @@ pub const utrans_transUChars = blk: {
         "utrans_transUChars";
     break :blk @extern(*const @TypeOf(c.utrans_transUChars), .{ .name = name });
 };
+
+pub const uloc_getLanguage = blk: {
+    const name = if (icu_ver > 0)
+        std.fmt.comptimePrint("uloc_getLanguage_{d}", .{icu_ver})
+    else
+        "uloc_getLanguage";
+    break :blk @extern(*const @TypeOf(c.uloc_getLanguage), .{ .name = name });
+};
+
+pub const uloc_getAvailable = blk: {
+    const name = if (icu_ver > 0)
+        std.fmt.comptimePrint("uloc_getAvailable_{d}", .{icu_ver})
+    else
+        "uloc_getAvailable";
+    break :blk @extern(*const @TypeOf(c.uloc_getAvailable), .{ .name = name });
+};
+
+pub const uloc_countAvailable = blk: {
+    const name = if (icu_ver > 0)
+        std.fmt.comptimePrint("uloc_countAvailable_{d}", .{icu_ver})
+    else
+        "uloc_countAvailable";
+    break :blk @extern(*const @TypeOf(c.uloc_countAvailable), .{ .name = name });
+};

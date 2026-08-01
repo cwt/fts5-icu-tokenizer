@@ -85,6 +85,9 @@ pub fn transliterateString(allocator: std.mem.Allocator, input: []const u8, rule
     defer allocator.free(output_u16);
 
     @memcpy(output_u16[0..input_u16.len], input_u16);
+    if (std.mem.indexOf(u8, rule_str, "Russian-Latin/BGN") != null) {
+        premapRussianYat(output_u16[0..input_u16.len]);
+    }
 
     var limit: i32 = @intCast(input_u16.len);
     var out_len: i32 = @intCast(input_u16.len);
@@ -105,6 +108,9 @@ pub fn transliterateString(allocator: std.mem.Allocator, input: []const u8, rule
         allocator.free(output_u16);
         output_u16 = new_u16;
         @memcpy(output_u16[0..input_u16.len], input_u16);
+        if (std.mem.indexOf(u8, rule_str, "Russian-Latin/BGN") != null) {
+            premapRussianYat(output_u16[0..input_u16.len]);
+        }
         out_len = @intCast(input_u16.len);
         limit = out_len;
         status = c.U_ZERO_ERROR;
@@ -195,6 +201,27 @@ fn convertUtf8ToUtf16Tolerant(
     return utf16_pos;
 }
 
+// Bug #14: ICU's Russian-Latin/BGN maps Cyrillic й/Й (U+0439/U+0419) to 'i',
+// colliding distinct words (мой/мои both become "moi"). The published
+// BGN/PCGN romanization maps й to 'y'. Pre-map it in the UTF-16 domain before
+// the transliteration pipeline runs; the replacement is 1:1 in UTF-16 units,
+// so the position map remains exact.
+fn premapRussianYat(u16buf: []c.UChar) void {
+    for (u16buf) |*u| {
+        if (u.* == 0x0439 or u.* == 0x0419) u.* = 'y';
+    }
+}
+
+// Bug #15: every transliteration chain is length-preserving (1:1) at
+// whitespace, so whitespace positions are exact anchors between the original
+// and the normalized text. Verified by probe: NFKD maps NBSP (U+00A0) and all
+// of U+2000..U+200A, U+202F, U+205F, U+3000 to U+0020, while ZWSP (U+200B),
+// LS (U+2028), PS (U+2029) and U+1680 do not decompose (they are never anchors).
+fn isSpaceLikeU16(ch: c.UChar) bool {
+    return ch == 0x20 or (ch >= 0x09 and ch <= 0x0D) or ch == 0xA0 or
+        (ch >= 0x2000 and ch <= 0x200A) or ch == 0x202F or ch == 0x205F or ch == 0x3000;
+}
+
 pub fn tokenizeText(
     allocator: std.mem.Allocator,
     tokenizer: *IcuTokenizer,
@@ -251,6 +278,14 @@ pub fn tokenizeText(
         byte_offset_map[utf16_pos] = @intCast(text.len);
     }
 
+    // Effective locale mirrors the override logic below (non-empty override
+    // wins, otherwise the tokenizer's own locale).
+    const effective_locale: []const u8 = if (override_locale) |l|
+        (if (l.len > 0) l else tokenizer.locale_slice)
+    else
+        tokenizer.locale_slice;
+    const uses_russian_bgn = std.mem.indexOf(u8, rules.getRulesForLocale(effective_locale), "Russian-Latin/BGN") != null;
+
     var baseBreakIterator = tokenizer.pBreakIterator.?;
     var pTransliterator = tokenizer.pTransliterator.?;
 
@@ -290,7 +325,10 @@ pub fn tokenizeText(
     const pBreakIterator = if (has_ubrk_clone)
         icu.ubrk_clone(baseBreakIterator, &clone_status)
     else blk: {
-        const locale_z = try allocator.dupeZ(u8, tokenizer.locale_slice);
+        // Bug #17: use the effective (per-call override, when present) locale
+        // instead of the tokenizer's own, matching ubrk_clone behavior on
+        // newer ICU.
+        const locale_z = try allocator.dupeZ(u8, effective_locale);
         defer allocator.free(locale_z);
         break :blk icu.ubrk_open(c.UBRK_WORD, locale_z.ptr, null, 0, &clone_status);
     };
@@ -331,6 +369,7 @@ pub fn tokenizeText(
         };
 
         @memcpy(cur_norm[0..utf16_pos], utf16_text_buffer[0..utf16_pos]);
+        if (uses_russian_bgn) premapRussianYat(cur_norm[0..utf16_pos]);
         cur_norm[utf16_pos] = 0;
 
         var ts: c.UErrorCode = c.U_ZERO_ERROR;
@@ -347,6 +386,7 @@ pub fn tokenizeText(
                 cur_norm = heap_norm.?;
             }
             @memcpy(cur_norm[0..utf16_pos], utf16_text_buffer[0..utf16_pos]);
+            if (uses_russian_bgn) premapRussianYat(cur_norm[0..utf16_pos]);
             cur_norm[utf16_pos] = 0;
             tlen = @intCast(utf16_pos);
             tlimit = tlen;
@@ -358,9 +398,14 @@ pub fn tokenizeText(
         const norm_len: usize = @intCast(tlen);
         normText = cur_norm[0..norm_len];
 
-        // Build position map: normalized UTF-16 position -> original UTF-16
-        // position. Proportional scaling is exact for 1:1 transforms (H<->K,
-        // Lower, NFKC) and a close monotonic approximation for expansions.
+        // Bug #15: position map from normalized UTF-16 position -> original
+        // UTF-16 position. Whitespace is an exact 1:1 anchor under every rule
+        // chain (see isSpaceLikeU16), so anchor at whitespace and use
+        // round-half-up proportional scaling within each space-delimited
+        // segment. The old whole-string proportional map compressed every
+        // later position whenever any transliteration changed unit counts
+        // (ﬁ->fi, щ->shch), misreporting offsets and silently dropping tokens
+        // when mapped positions collided (nTokenByte <= 0).
         const pm_cap = norm_len + 1;
         const pm = if (pm_cap <= STACK_CAP * 3 + 1)
             stack_posmap[0..pm_cap]
@@ -368,8 +413,41 @@ pub fn tokenizeText(
             heap_posmap = try allocator.alloc(i32, pm_cap);
             break :blk2 heap_posmap.?;
         };
+        var orig_pos: usize = 0;
+        var seg_orig_start: usize = 0;
+        var seg_norm_start: usize = 0;
         for (0..norm_len) |i| {
-            pm[i] = @intCast(@min(utf16_pos - 1, (i * utf16_pos) / norm_len));
+            if (orig_pos >= utf16_pos) break;
+            if (!isSpaceLikeU16(normText[i])) continue;
+            while (orig_pos < utf16_pos and !isSpaceLikeU16(utf16_text_buffer[orig_pos])) {
+                orig_pos += 1;
+            }
+            if (orig_pos >= utf16_pos) {
+                // No whitespace left in the original text; leave the rest to
+                // the trailing segment below (defensive; cannot happen with
+                // current rule chains, which preserve whitespace).
+                break;
+            }
+            if (i > seg_norm_start) {
+                const seg_orig_len = orig_pos - seg_orig_start;
+                const seg_norm_len = i - seg_norm_start;
+                for (seg_norm_start..i) |k| {
+                    const rel = (k - seg_norm_start) * seg_orig_len;
+                    pm[k] = @intCast(seg_orig_start + (rel + seg_norm_len / 2) / seg_norm_len);
+                }
+            }
+            pm[i] = @intCast(orig_pos);
+            seg_orig_start = orig_pos + 1;
+            seg_norm_start = i + 1;
+            orig_pos += 1;
+        }
+        if (norm_len > seg_norm_start) {
+            const seg_orig_len = utf16_pos - seg_orig_start;
+            const seg_norm_len = norm_len - seg_norm_start;
+            for (seg_norm_start..norm_len) |k| {
+                const rel = (k - seg_norm_start) * seg_orig_len;
+                pm[k] = @intCast(seg_orig_start + (rel + seg_norm_len / 2) / seg_norm_len);
+            }
         }
         pm[norm_len] = @intCast(utf16_pos);
         position_map = pm;
@@ -490,7 +568,7 @@ test "transliterateString grows buffer instead of erroring (bug #3)" {
     defer gpa.free(out);
 
     try std.testing.expect(out.len > 0);
-    try std.testing.expect(std.mem.indexOf(u8, out, "russkij") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out, "russkiy") != null);
     try std.testing.expect(std.mem.indexOf(u8, out, "francais") != null);
 }
 
@@ -850,12 +928,95 @@ test "tokenizeText transliteration preserves all tokens (bug #2 regression)" {
     var found_russian = false;
     var found_french = false;
     for (cap.tokens.items) |t| {
-        if (std.mem.eql(u8, t, "russkij")) found_russian = true;
+        if (std.mem.eql(u8, t, "russkiy")) found_russian = true;
         if (std.mem.eql(u8, t, "francais")) found_french = true;
     }
     try std.testing.expect(cap.tokens.items.len >= 6);
     try std.testing.expect(found_russian);
     try std.testing.expect(found_french);
+}
+
+// Bug #14: Cyrillic-Latin collapses щ/ш/с -> s and ж/з -> z (борщ/борс, шар/сар,
+// жар/зар become identical tokens). Russian-Latin/BGN keeps them distinct, and
+// the й->y pre-map keeps мой/мои apart (мой->moy, мои->moi).
+test "tokenizeText Russian BGN keeps letters distinct (bug #14)" {
+    const gpa = std.testing.allocator;
+
+    const tok = try IcuTokenizer.create(gpa, "ru");
+    defer tok.destroy(gpa);
+
+    const text = "борщ борс шар сар жар зар мой мои русский";
+    var cap: Capture = .{ .gpa = gpa, .tokens = .empty };
+    defer {
+        for (cap.tokens.items) |t| gpa.free(t);
+        cap.tokens.deinit(gpa);
+    }
+    const rc = try tokenizeText(gpa, tok, text, null, &cap, captureTokenCallback);
+    try std.testing.expectEqual(@as(c_int, c.SQLITE_OK), rc);
+
+    var found = [_]bool{false} ** 9;
+    for (cap.tokens.items) |t| {
+        if (std.mem.eql(u8, t, "borshch")) found[0] = true;
+        if (std.mem.eql(u8, t, "bors")) found[1] = true;
+        if (std.mem.eql(u8, t, "shar")) found[2] = true;
+        if (std.mem.eql(u8, t, "sar")) found[3] = true;
+        if (std.mem.eql(u8, t, "zhar")) found[4] = true;
+        if (std.mem.eql(u8, t, "zar")) found[5] = true;
+        if (std.mem.eql(u8, t, "moy")) found[6] = true;
+        if (std.mem.eql(u8, t, "moi")) found[7] = true;
+        if (std.mem.eql(u8, t, "russkiy")) found[8] = true;
+    }
+    for (found) |f| try std.testing.expect(f);
+}
+
+// Bug #15: transliteration expansions (ﬁ->fi, щ->shch) must not skew the byte
+// offsets of later tokens. Whitespace anchors each segment exactly; the old
+// whole-string proportional map misreported offsets and dropped tokens here.
+test "tokenizeText expansion keeps byte offsets (bug #15)" {
+    const gpa = std.testing.allocator;
+
+    const tok = try IcuTokenizer.create(gpa, "");
+    defer tok.destroy(gpa);
+
+    var cap: CaptureWithRange = .{ .gpa = gpa, .tokens = .empty };
+    defer {
+        for (cap.tokens.items) |t| gpa.free(t.text);
+        cap.tokens.deinit(gpa);
+    }
+
+    // "a ﬁ b": ﬁ (U+FB01) is 3 UTF-8 bytes / 1 UTF-16 unit and expands to two
+    // normalized units, but must still map back to bytes [2,5).
+    _ = try tokenizeText(gpa, tok, "a ﬁ b", null, &cap, captureRangeCallback);
+    for (cap.tokens.items) |t| {
+        if (std.mem.eql(u8, t.text, "fi")) {
+            try std.testing.expectEqual(@as(i32, 2), t.i_start);
+            try std.testing.expectEqual(@as(i32, 5), t.i_end);
+        }
+        if (std.mem.eql(u8, t.text, "a")) {
+            try std.testing.expectEqual(@as(i32, 0), t.i_start);
+            try std.testing.expectEqual(@as(i32, 1), t.i_end);
+        }
+        if (std.mem.eql(u8, t.text, "b")) {
+            try std.testing.expectEqual(@as(i32, 6), t.i_start);
+            try std.testing.expectEqual(@as(i32, 7), t.i_end);
+        }
+    }
+
+    // 1->5 unit expansion (щ -> shch) with Russian BGN rules: "борщ вкусный"
+    // (4+1+7 UTF-16 units, 8+1+14 bytes) -> borshch [0,8), vkusnyy [9,23).
+    for (cap.tokens.items) |t| gpa.free(t.text);
+    cap.tokens.clearRetainingCapacity();
+    _ = try tokenizeText(gpa, tok, "борщ вкусный", "ru", &cap, captureRangeCallback);
+    for (cap.tokens.items) |t| {
+        if (std.mem.eql(u8, t.text, "borshch")) {
+            try std.testing.expectEqual(@as(i32, 0), t.i_start);
+            try std.testing.expectEqual(@as(i32, 8), t.i_end);
+        }
+        if (std.mem.eql(u8, t.text, "vkusnyy")) {
+            try std.testing.expectEqual(@as(i32, 9), t.i_start);
+            try std.testing.expectEqual(@as(i32, 23), t.i_end);
+        }
+    }
 }
 
 // Bug #12: `u_strFromUTF8` was removed (dead; utf8ToUtf16Alloc uses the std

@@ -7,10 +7,10 @@ pub const ICU_RULE_ZH = ICU_RULE_BASE ++ "Traditional-Simplified; Lower; NFKC";
 pub const ICU_RULE_TH = ICU_RULE_BASE ++ "Lower; NFKC";
 pub const ICU_RULE_KO = ICU_RULE_BASE ++ "Lower; NFKC";
 pub const ICU_RULE_AR = ICU_RULE_BASE ++ "Arabic-Latin; " ++ ICU_RULE_LATIN_NORMALIZE ++ "NFKC";
-pub const ICU_RULE_RU = ICU_RULE_BASE ++ "Cyrillic-Latin; " ++ ICU_RULE_LATIN_NORMALIZE ++ "NFKC";
+pub const ICU_RULE_RU = ICU_RULE_BASE ++ "Russian-Latin/BGN; " ++ ICU_RULE_LATIN_NORMALIZE ++ "NFKC";
 pub const ICU_RULE_HE = ICU_RULE_BASE ++ "Hebrew-Latin; " ++ ICU_RULE_LATIN_NORMALIZE ++ "NFKC";
 pub const ICU_RULE_EL = ICU_RULE_BASE ++ "Greek-Latin; " ++ ICU_RULE_LATIN_NORMALIZE ++ "NFKC";
-pub const ICU_RULE_DEFAULT = ICU_RULE_BASE ++ "Arabic-Latin; Cyrillic-Latin; Hebrew-Latin; " ++
+pub const ICU_RULE_DEFAULT = ICU_RULE_BASE ++ "Arabic-Latin; Russian-Latin/BGN; Hebrew-Latin; " ++
     "Greek-Latin; " ++ ICU_RULE_LATIN_NORMALIZE ++ "NFKC; Traditional-Simplified; " ++
     "Hiragana-Katakana";
 
@@ -50,4 +50,15 @@ test "rules mapping" {
     const info_ja = getLocaleInfo("ja_JP");
     try std.testing.expectEqualStrings(ICU_RULE_JA, info_ja.rules);
     try std.testing.expectEqualStrings("icu_ja", info_ja.tokenizer_name);
+}
+
+// Bug #14: Cyrillic-Latin (any variant, and the diacritic-strip post-filter)
+// collapses щ/ш/с -> s and ж/з -> z. Russian-Latin/BGN keeps them distinct
+// (борщ->borshch, шар->shar, жар->zhar) and is pure ASCII. Available as
+// Russian-Latin/BGN on ICU 67 and later (plain Russian-Latin does not exist).
+test "rules use Russian-Latin/BGN for Russian (bug #14)" {
+    try std.testing.expect(std.mem.indexOf(u8, ICU_RULE_RU, "Russian-Latin/BGN") != null);
+    try std.testing.expect(std.mem.indexOf(u8, ICU_RULE_DEFAULT, "Russian-Latin/BGN") != null);
+    try std.testing.expect(std.mem.indexOf(u8, ICU_RULE_RU, "Cyrillic-Latin") == null);
+    try std.testing.expect(std.mem.indexOf(u8, ICU_RULE_DEFAULT, "Cyrillic-Latin") == null);
 }

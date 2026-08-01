@@ -821,3 +821,191 @@ exports only the 3 non-locale-specific entry points (`sqlite3_ftsicu_init`,
 `sqlite3_ftsicu_legacy_init`, `sqlite3_ftsiculegacy_init`); each locale-specific
 library exports only its 4 entry points. This matches the original C version
 (`main.git`), where the universal build never emits the locale-specific names.
+
+---
+
+## New Findings (2026 audit, second pass)
+
+A second audit pass, driven by an empirical probe harness running against
+Homebrew ICU 78 and an AlmaLinux 9 container (ICU 67.1.0), found two HIGH
+correctness bugs and three LOW issues. All five are described below with their
+verified behavior; the HIGH fixes (and #17) are implemented in the working tree
+with regression tests, but not yet committed.
+
+| Bug | Severity | Status | Fix commit |
+|-----|----------|--------|-----------
+| #14 | HIGH | OPEN | — |
+| #15 | HIGH | OPEN | — |
+| #16 | LOW | OPEN | — |
+| #17 | LOW | FIXED (uncommitted) | — |
+| #18 | LOW | OPEN | — |
+
+> **Note:** a stale untracked backup `src/tokenizer.zig.orig` (left over from an
+> earlier draft) was deleted during this pass.
+
+---
+
+## 14. [HIGH] Cyrillic-Latin transliteration collapses distinct letters; й maps to 'i'
+
+**File:** `src/rules.zig`
+**Lines:** 9–13 (`ICU_RULE_RU`, `ICU_RULE_DEFAULT`)
+
+### Description
+
+`Cyrillic-Latin` maps щ, ш and с to `s`, and ж and з to `z` (its output for
+щ/ж/з carries a combining mark that the following `Latin-ASCII` step strips).
+The net effect is that **distinct Russian words collapse to identical tokens**:
+борщ/борс → `bors`, щи/си → `si`, шар/сар → `sar`, жар/зар → `zar`. On top of
+that, ICU's `Russian-Latin/BGN` (the standard's sanctioned replacement) maps й
+(U+0439) to `i` — while the published BGN/PCGN romanization maps й to `y` — so
+мой and мои collapse to `moi` and русский becomes `russkii`.
+
+Verified with probes on both ICU 78 and ICU 67.1.0 (identical behavior):
+борщ→borshch, щи→shchi, шар→shar, сар→sar, жар→zhar, зар→zar, чашка→chashka,
+щека→shcheka, я→ya, ю→yu, хлеб→khleb, цвет→tsvet, ещё→yeshche, мой/мои→moi
+(collision), русский→russkii, мышь→mysh', ильин→il'in, объём→ob"yem.
+
+### Impact
+
+- Russian full-text search is unreliable: unrelated words (борщ vs борс, жар
+  vs зар) share a token, and distinct inflected forms (мой vs мои) become
+  indistinguishable.
+- Search terms and documents no longer agree on token spelling after a
+  software update (behavior change vs the previous Cyrillic-Latin output).
+
+### Suggested fix (implemented)
+
+- Switch `ICU_RULE_RU` and the Cyrillic leg of `ICU_RULE_DEFAULT` to
+  `Russian-Latin/BGN` (`NFKD; Russian-Latin/BGN; Latin-ASCII; Lower; NFKC`).
+  Plain `Russian-Latin` does not exist as an ID on ICU 67 (`utrans_openU`
+  returns U_INVALID_ID); the `/BGN` variant is available on both 67 and 78.
+- Pre-map Cyrillic й/Й (U+0439/U+0419) to `y` in the UTF-16 domain before
+  transliteration (1:1 units, so the position map stays exact). This runs in
+  both `tokenizeText` and `transliterateString`, gated on the rule string
+  containing `Russian-Latin/BGN`. Inline transliterator pre-rules are not an
+  option: `utrans_openU` parses only registered compound IDs — every rule
+  string (e.g. `[\u0439] > y`) fails with U_INVALID_ID, confirmed against the
+  ICU 78 sources (`translit.cpp`, `transreg.cpp`).
+
+Rejected alternatives (verified): `Cyrillic-Latin/BGN` and `/UNGEGN` still
+emit diacritics (борщ→borŝ); `NFD; remove-marks` still collapses борщ/борс;
+per-token transliteration is wrong (UBRK splits はー before transliteration).
+
+---
+
+## 15. [HIGH] Whole-string proportional position map skews offsets and drops tokens
+
+**File:** `src/tokenizer.zig`
+**Lines:** ~320–375 (position map), ~400–411 (offset derivation)
+
+### Description
+
+The position map (normalized UTF-16 position → original UTF-16 position) used
+whole-string proportional scaling: `pm[i] = min(utf16_pos-1, i * utf16_pos /
+norm_len)`. That is only exact when the transliteration is 1:1 in UTF-16 units
+(NFKC, Lower, Hiragana-Katakana). Any expansion (ﬁ→fi: 1→2 units, щ→shch:
+1→5, ё→ye, BGN s->shch) compresses **every** later position, so every token
+after an expansion reports a wrong byte range, and adjacent mapped positions
+can collide — `nTokenByte <= 0` then silently drops the token.
+
+Empirically: tokenizing `a ﬁ b` with the default rules yielded `fi` at [1,5)
+instead of [2,5), and the `a` token was dropped entirely (its mapped end
+position collided with its start).
+
+### Impact
+
+- FTS5 snippet/highlight offsets are wrong for any text containing a
+  transliteration expansion before the match.
+- Documents silently lose searchable tokens, changing query results.
+
+### Suggested fix (implemented)
+
+Anchor the map at whitespace: every rule chain preserves whitespace 1:1
+(probes: NFKD maps NBSP U+00A0, U+2000..U+200A, U+202F, U+205F, U+3000 to
+U+0020; ZWSP U+200B, LS U+2028, PS U+2029 and U+1680 do not decompose and are
+never anchors). Whitespace positions in the normalized text are matched to
+whitespace positions in the original and set exactly; within each
+space-delimited segment the map is proportional with round-half-up rounding
+(a 1:1 segment stays exact). Verified exact for `a ﬁ b` (a→[0,1), fi→[2,5),
+b→[6,7)) and `борщ вкусный` (borshch→[0,8), vkusnyy→[9,23) — the latter with
+the BGN rules of bug #14, including the 1→5 щ expansion).
+
+---
+
+## 16. [LOW] Invalid locale silently accepted (fallback warning not treated as error)
+
+**File:** `src/tokenizer.zig`
+**Lines:** 37–39 (`IcuTokenizer.create`)
+
+### Description
+
+`ubrk_open` returns `U_USING_FALLBACK_WARNING` (−127) for a locale it cannot
+resolve (e.g. `"xx_YY"`), and the code checks only `U_FAILURE(status)`, which
+does not include warnings. The tokenizer is created successfully with root
+rules, and `tokenizeText` then silently produces unexpected tokens.
+
+### Impact
+
+- Typos in the locale argument of `CREATE VIRTUAL TABLE` (e.g. `icu_ru_` or
+  `icu_enu`) silently fall back to root segmentation instead of failing, so
+  the failure mode is a hard-to-debug wrong-result rather than an error.
+
+### Suggested fix
+
+Treat `U_USING_FALLBACK_WARNING` as a failure in `create` (return
+`error.IcuBreakIteratorFailed`). Not implemented: SQLite's own C tokenizer
+does not reject such locales either, and rejecting them changes public
+behavior; the warning path is currently benign (root rules).
+
+---
+
+## 17. [LOW] ICU < 69 break-iterator fallback ignores the per-call override locale
+
+**File:** `src/tokenizer.zig`
+**Lines:** ~293–296 (fallback branch of the clone)
+
+### Description
+
+On platforms without `ubrk_clone` (ICU < 69 and non-Darwin), `tokenizeText`
+re-opens a break iterator with `tokenizer.locale_slice`, ignoring the
+per-call `override_locale`. With an override in effect (e.g. `icu` tokenizer
+called with `"ja"`), the transliterator and the *cloned* break iterator
+(newer ICU) use the override locale, but the fallback iterator uses the
+tokenizer's own locale — inconsistent segmentation per platform.
+
+### Impact
+
+- Locale-override calls segment differently on ICU < 69 vs ≥ 69.
+
+### Suggested fix (implemented)
+
+Use the effective locale (non-empty override wins, else the tokenizer's own)
+in the fallback branch, matching the override logic already used for the
+transliterator.
+
+---
+
+## 18. [LOW] Arabic/Hebrew tokens retain non-ASCII modifier letters (ʿ, ʻ)
+
+**File:** `src/rules.zig`
+**Lines:** 9, 11 (`ICU_RULE_AR`, `ICU_RULE_HE`)
+
+### Description
+
+`Arabic-Latin` emits U+02BF (ʿ, hamza) and `Hebrew-Latin` emits U+02BB (ʻ,
+ayin) and U+2019 (ʼ). `Latin-ASCII` only maps letters, digits and basic
+punctuation, so these survive the pipeline; tokens like `alʿrbyt` and
+`haggim` contain non-ASCII bytes.
+
+### Impact
+
+- Tokens for Arabic/Hebrew are not pure ASCII, so case-insensitive ASCII
+  searches and URL-safe token handling behave inconsistently; the modifiers
+  must be typed exactly to match.
+
+### Suggested fix
+
+Post-map U+02BF, U+02BB and U+2019 to nothing (or to `'`) in the UTF-16
+domain, like the bug #14 pre-map. Inline transliterator rules cannot express
+this (see bug #14: `utrans_openU` rejects rule syntax). Not implemented —
+behavioral change for Arabic/Hebrew users; documented for a follow-up.

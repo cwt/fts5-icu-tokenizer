@@ -849,12 +849,16 @@ test "concurrent multi-threaded tokenizeText thread safety" {
     const tok = try IcuTokenizer.create(testing_allocator, "ja");
     defer tok.destroy(testing_allocator);
 
+    var thread_errors: std.atomic.Value(usize) = .init(0);
     const ThreadContext = struct {
         tokenizer: *IcuTokenizer,
         text: []const u8,
+        errors: *std.atomic.Value(usize),
         fn worker(self: @This()) void {
             const rc = tokenizeText(std.heap.c_allocator, self.tokenizer, self.text, null, null, dummyTokenCallback) catch c.SQLITE_ERROR;
-            std.testing.expectEqual(@as(c_int, c.SQLITE_OK), rc) catch {};
+            if (rc != c.SQLITE_OK) {
+                _ = self.errors.fetchAdd(1, .monotonic);
+            }
         }
     };
 
@@ -864,12 +868,14 @@ test "concurrent multi-threaded tokenizeText thread safety" {
         t.* = try std.Thread.spawn(.{}, ThreadContext.worker, .{ThreadContext{
             .tokenizer = tok,
             .text = text,
+            .errors = &thread_errors,
         }});
     }
 
     for (threads) |t| {
         t.join();
     }
+    try std.testing.expectEqual(@as(usize, 0), thread_errors.load(.monotonic));
 }
 
 const Capture = struct {
@@ -957,8 +963,10 @@ test "concurrent tokenizeText with transliteration (thread safety)" {
     const tok = try IcuTokenizer.create(gpa, "ru");
     defer tok.destroy(gpa);
 
+    var thread_errors: std.atomic.Value(usize) = .init(0);
     const ThreadContext = struct {
         tokenizer: *IcuTokenizer,
+        errors: *std.atomic.Value(usize),
         fn worker(self: @This()) void {
             const rc = tokenizeText(
                 std.heap.c_allocator,
@@ -968,15 +976,18 @@ test "concurrent tokenizeText with transliteration (thread safety)" {
                 null,
                 dummyTokenCallback,
             ) catch c.SQLITE_ERROR;
-            std.testing.expectEqual(@as(c_int, c.SQLITE_OK), rc) catch {};
+            if (rc != c.SQLITE_OK) {
+                _ = self.errors.fetchAdd(1, .monotonic);
+            }
         }
     };
 
     var threads: [8]std.Thread = undefined;
     for (&threads) |*t| {
-        t.* = try std.Thread.spawn(.{}, ThreadContext.worker, .{ThreadContext{ .tokenizer = tok }});
+        t.* = try std.Thread.spawn(.{}, ThreadContext.worker, .{ThreadContext{ .tokenizer = tok, .errors = &thread_errors }});
     }
     for (threads) |t| t.join();
+    try std.testing.expectEqual(@as(usize, 0), thread_errors.load(.monotonic));
 }
 
 // Bug #2: a token whose transliteration expands beyond the buffer must not be

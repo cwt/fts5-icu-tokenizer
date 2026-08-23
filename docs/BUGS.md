@@ -1050,7 +1050,7 @@ instrumented position-map dump; #20 with a query-time override probe;
 |-----|----------|--------|
 | #19 | HIGH | FIXED |
 | #20 | MEDIUM | FIXED |
-| #21 | LOW | OPEN |
+| #21 | LOW | FIXED |
 | #22 | LOW | OPEN |
 | #23 | LOW | OPEN |
 | #24 | LOW | OPEN |
@@ -1188,7 +1188,7 @@ Regression test: `tokenizeText rejects invalid query-time override locale
 
 ---
 
-## 21. [LOW] `getLocaleInfo` language matching is case-sensitive and unanchored
+## 21. [LOW] `getLocaleInfo` language matching is case-sensitive and unanchored [FIXED]
 
 **File:** `src/rules.zig`
 **Lines:** 23–33 (`getLocaleInfo` prefix table)
@@ -1222,6 +1222,16 @@ Extract the language subtag up to the first `-`/`_`/`@` (or end of
 string), compare case-insensitively (`std.ascii.eqlIgnoreCase`), and keep
 the alias list. Extend the `rules mapping` unit test with `"JA_JP"`,
 `"kok"`, `"arn"` cases.
+
+### Fix (implemented)
+
+`getLocaleInfo` now extracts the full language subtag (up to the first
+`-`, `_` or `@`) and compares it case-insensitively via a `langEql`
+helper; the alias table is unchanged (`ja/jp`, `zh/cn`, `th`, `ko/kr`,
+`ar`, `ru`, `he/iw`, `el/gr`). Uppercase spellings now select their locale
+chain and tokenizer name, while `kok`/`arn`/`jam` keep the universal
+DEFAULT rules. Regression test: `rules mapping is case-insensitive and
+subtag-anchored (bug #21)`.
 
 ---
 

@@ -19,17 +19,27 @@ pub const LocaleInfo = struct {
     tokenizer_name: []const u8,
 };
 
+// Case-insensitive equality for a language subtag.
+fn langEql(a: []const u8, b: []const u8) bool {
+    return a.len == b.len and std.ascii.eqlIgnoreCase(a, b);
+}
+
 pub fn getLocaleInfo(locale: []const u8) LocaleInfo {
     if (locale.len >= 2) {
-        const prefix = locale[0..2];
-        if (std.mem.eql(u8, prefix, "ja") or std.mem.eql(u8, prefix, "jp")) return .{ .rules = ICU_RULE_JA, .tokenizer_name = "icu_ja" };
-        if (std.mem.eql(u8, prefix, "zh") or std.mem.eql(u8, prefix, "cn")) return .{ .rules = ICU_RULE_ZH, .tokenizer_name = "icu_zh" };
-        if (std.mem.eql(u8, prefix, "th")) return .{ .rules = ICU_RULE_TH, .tokenizer_name = "icu_th" };
-        if (std.mem.eql(u8, prefix, "ko") or std.mem.eql(u8, prefix, "kr")) return .{ .rules = ICU_RULE_KO, .tokenizer_name = "icu_ko" };
-        if (std.mem.eql(u8, prefix, "ar")) return .{ .rules = ICU_RULE_AR, .tokenizer_name = "icu_ar" };
-        if (std.mem.eql(u8, prefix, "ru")) return .{ .rules = ICU_RULE_RU, .tokenizer_name = "icu_ru" };
-        if (std.mem.eql(u8, prefix, "he") or std.mem.eql(u8, prefix, "iw")) return .{ .rules = ICU_RULE_HE, .tokenizer_name = "icu_he" };
-        if (std.mem.eql(u8, prefix, "el") or std.mem.eql(u8, prefix, "gr")) return .{ .rules = ICU_RULE_EL, .tokenizer_name = "icu_el" };
+        // Bug #21: match the FULL language subtag (up to '-', '_' or '@')
+        // case-insensitively. The previous raw two-byte prefix compare was
+        // case-sensitive ("JA_JP" fell through to DEFAULT while ICU itself
+        // accepts that spelling) and unanchored ("kok"/Konkani matched ko,
+        // "arn"/Mapudungun matched ar, "jam"/Jamaican Creole matched ja).
+        const lang = locale[0 .. std.mem.indexOfAny(u8, locale, "-_@") orelse locale.len];
+        if (langEql(lang, "ja") or langEql(lang, "jp")) return .{ .rules = ICU_RULE_JA, .tokenizer_name = "icu_ja" };
+        if (langEql(lang, "zh") or langEql(lang, "cn")) return .{ .rules = ICU_RULE_ZH, .tokenizer_name = "icu_zh" };
+        if (langEql(lang, "th")) return .{ .rules = ICU_RULE_TH, .tokenizer_name = "icu_th" };
+        if (langEql(lang, "ko") or langEql(lang, "kr")) return .{ .rules = ICU_RULE_KO, .tokenizer_name = "icu_ko" };
+        if (langEql(lang, "ar")) return .{ .rules = ICU_RULE_AR, .tokenizer_name = "icu_ar" };
+        if (langEql(lang, "ru")) return .{ .rules = ICU_RULE_RU, .tokenizer_name = "icu_ru" };
+        if (langEql(lang, "he") or langEql(lang, "iw")) return .{ .rules = ICU_RULE_HE, .tokenizer_name = "icu_he" };
+        if (langEql(lang, "el") or langEql(lang, "gr")) return .{ .rules = ICU_RULE_EL, .tokenizer_name = "icu_el" };
     }
     return .{ .rules = ICU_RULE_DEFAULT, .tokenizer_name = "icu" };
 }
@@ -46,10 +56,27 @@ test "rules mapping" {
     try std.testing.expectEqualStrings(ICU_RULE_JA, getRulesForLocale("ja"));
     try std.testing.expectEqualStrings(ICU_RULE_ZH, getRulesForLocale("zh-CN"));
     try std.testing.expectEqualStrings(ICU_RULE_DEFAULT, getRulesForLocale("en_US"));
-    
+
     const info_ja = getLocaleInfo("ja_JP");
     try std.testing.expectEqualStrings(ICU_RULE_JA, info_ja.rules);
     try std.testing.expectEqualStrings("icu_ja", info_ja.tokenizer_name);
+}
+
+// Bug #21: language matching must be case-insensitive (ICU locale IDs are)
+// and anchored at the full subtag, so unrelated languages that merely start
+// with the same two letters keep the universal rules.
+test "rules mapping is case-insensitive and subtag-anchored (bug #21)" {
+    // Case-insensitivity matches ICU's own canonicalization…
+    try std.testing.expectEqualStrings(ICU_RULE_JA, getRulesForLocale("JA_JP"));
+    try std.testing.expectEqualStrings(ICU_RULE_HE, getRulesForLocale("IW"));
+    try std.testing.expectEqualStrings(ICU_RULE_EL, getRulesForLocale("Gr"));
+    try std.testing.expectEqualStrings("icu_ja", getTokenizerNameForLocale("Ja"));
+
+    // …while unanchored prefixes must not hijack unrelated languages.
+    try std.testing.expectEqualStrings(ICU_RULE_DEFAULT, getRulesForLocale("kok")); // Konkani, not ko
+    try std.testing.expectEqualStrings(ICU_RULE_DEFAULT, getRulesForLocale("arn")); // Mapudungun, not ar
+    try std.testing.expectEqualStrings(ICU_RULE_DEFAULT, getRulesForLocale("jam")); // Jamaican Creole, not ja
+    try std.testing.expectEqualStrings("icu", getTokenizerNameForLocale("kok"));
 }
 
 // Bug #14: Cyrillic-Latin (any variant, and the diacritic-strip post-filter)

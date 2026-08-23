@@ -394,6 +394,13 @@ pub fn tokenizeText(
             const loc_c = try allocator.dupeZ(u8, loc);
             defer allocator.free(loc_c);
 
+            // Bug #20: per-call overrides reach ubrk_open/utrans_openU at
+            // query time and must pass the same isValidLocaleLanguage gate
+            // as IcuTokenizer.create (bug #16); otherwise a typo'd row/query
+            // locale silently tokenizes with the wrong rules while the same
+            // string fails loudly at CREATE TABLE time.
+            if (!isValidLocaleLanguage(loc_c.ptr)) return c.SQLITE_ERROR;
+
             const dyn_rules = rules.getRulesForLocale(loc);
             const dyn_rules_u16 = try utf8ToUtf16Alloc(allocator, dyn_rules);
             defer allocator.free(dyn_rules_u16);
@@ -1153,6 +1160,27 @@ test "create rejects unresolvable locale (bug #16)" {
     try std.testing.expectError(error.IcuInvalidLocale, IcuTokenizer.create(gpa, "xx"));
     try std.testing.expectError(error.IcuInvalidLocale, IcuTokenizer.create(gpa, "xx_YY"));
     try std.testing.expectError(error.IcuInvalidLocale, IcuTokenizer.create(gpa, "xyz"));
+}
+
+// Bug #20: per-call (query-time) locale overrides reach ubrk_open /
+// utrans_openU directly and must pass the same isValidLocaleLanguage gate as
+// IcuTokenizer.create; a typo'd override must return SQLITE_ERROR instead of
+// silently tokenizing with the wrong rules.
+test "tokenizeText rejects invalid query-time override locale (bug #20)" {
+    const gpa = std.testing.allocator;
+
+    const tok = try IcuTokenizer.create(gpa, "");
+    defer tok.destroy(gpa);
+
+    const rc_bad = try tokenizeText(gpa, tok, "hello world", "xx_NOPE", null, dummyTokenCallback);
+    try std.testing.expectEqual(@as(c_int, c.SQLITE_ERROR), rc_bad);
+
+    // Valid overrides and the empty-string (use tokenizer locale) cases keep
+    // working.
+    const rc_good = try tokenizeText(gpa, tok, "hello world", "ja", null, dummyTokenCallback);
+    try std.testing.expectEqual(@as(c_int, c.SQLITE_OK), rc_good);
+    const rc_empty = try tokenizeText(gpa, tok, "hello world", "", null, dummyTokenCallback);
+    try std.testing.expectEqual(@as(c_int, c.SQLITE_OK), rc_empty);
 }
 
 // Bug #16 (positive side): the rules.zig aliases (jp/cn/kr) are not ICU

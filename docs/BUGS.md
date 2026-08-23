@@ -1049,7 +1049,7 @@ instrumented position-map dump; #20 with a query-time override probe;
 | Bug | Severity | Status |
 |-----|----------|--------|
 | #19 | HIGH | FIXED |
-| #20 | MEDIUM | OPEN |
+| #20 | MEDIUM | FIXED |
 | #21 | LOW | OPEN |
 | #22 | LOW | OPEN |
 | #23 | LOW | OPEN |
@@ -1142,7 +1142,7 @@ sane (bug #19)`.
 
 ---
 
-## 20. [MEDIUM] Query-time `override_locale` bypasses locale validation (bug #16 fixed create-time only)
+## 20. [MEDIUM] Query-time `override_locale` bypasses locale validation (bug #16 fixed create-time only) [FIXED]
 
 **File:** `src/tokenizer.zig`
 **Lines:** ~39 (create-time validation), ~370–392 (`tokenizeText`
@@ -1176,6 +1176,15 @@ Run the existing `isValidLocaleLanguage` on the effective override before
 opening the dynamic break iterator/transliterator and return
 `c.SQLITE_ERROR` when it rejects the locale. Reuse — do not duplicate —
 the validator.
+
+### Fix (implemented)
+
+`tokenizeText` now calls `isValidLocaleLanguage` on the zero-terminated
+override string right before opening the dynamic break iterator and
+returns `c.SQLITE_ERROR` when rejected. Valid overrides (`"ja"`) and the
+empty override (fall back to the tokenizer's own locale) are unaffected.
+Regression test: `tokenizeText rejects invalid query-time override locale
+(bug #20)` — `"xx_NOPE"` → SQLITE_ERROR, `"ja"`/`""` → SQLITE_OK.
 
 ---
 

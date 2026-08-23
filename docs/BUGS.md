@@ -1054,7 +1054,11 @@ instrumented position-map dump; #20 with a query-time override probe;
 | #22 | LOW | FIXED |
 | #23 | LOW | FIXED |
 | #24 | LOW | FIXED |
-| #25 | LOW | OPEN |
+| #25 | LOW | FIXED |
+
+> All seven third-pass findings are now resolved; each fix is a separate
+> commit that also flips the status above. `zig build test` runs the suite
+> (34 tests) in Debug with safety checks enabled.
 
 ---
 
@@ -1351,7 +1355,7 @@ in zig-out/lib: dylib+so × v2+legacy).
 
 ---
 
-## 25. [LOW] Unit tests run under ReleaseFast — safety-checked UB untested
+## 25. [LOW] Unit tests run under ReleaseFast — safety-checked UB untested [FIXED]
 
 **File:** `build.zig` line 6 (optimize default) and lines 196–203 (test step)
 
@@ -1375,6 +1379,13 @@ still works, but e.g. a reintroduced off-by-one heap overflow of the bug
 Build the test module with Debug explicitly (separate options module or
 `.optimize = .Debug` on a dedicated test root module), keeping ReleaseFast
 as the default only for shipped libraries.
+
+### Fix (implemented)
+
+`build.zig` creates a dedicated `test_root_module` (same sources and
+imports as the universal library) with `.optimize = .Debug` and points
+`addTest` at it; the build summary now shows `compile test Debug native`.
+Shipped libraries keep the ReleaseFast default. Suite: 34/34 passing.
 
 ---
 

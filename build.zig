@@ -199,8 +199,26 @@ pub fn build(b: *std.Build) void {
     }
 
     // Unit tests
+    //
+    // Bug #25: the suite previously reused `root_module` and therefore ran
+    // under the default ReleaseFast, compiling out safety-checked UB
+    // (integer overflow, OOB slice panics) exactly where regression tests
+    // must catch it. Give the tests their own Debug-optimized module;
+    // shipped libraries keep ReleaseFast.
+    const test_root_module = b.createModule(.{
+        .root_source_file = b.path("src/fts5_icu.zig"),
+        .target = target,
+        .optimize = .Debug,
+        .imports = &.{
+            .{ .name = "c", .module = c_mod },
+            .{ .name = "c_icu", .module = c_icu_mod },
+            .{ .name = "build_options", .module = options_mod },
+        },
+    });
+    linkModule(test_root_module, is_macos);
+
     const unit_tests = b.addTest(.{
-        .root_module = root_module,
+        .root_module = test_root_module,
     });
     configureArtifact(unit_tests, false);
 

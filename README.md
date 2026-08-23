@@ -1,6 +1,6 @@
 # FTS5 ICU Tokenizer for SQLite (Zig 0.16.0 Edition)
 
-Version **7.1.0**
+Version **7.1.1**
 
 This project provides custom FTS5 tokenizers for SQLite implemented in **Zig 0.16.0** using the International Components for Unicode (ICU) library to provide robust word segmentation and text normalization across multiple languages.
 
@@ -212,7 +212,7 @@ SELECT * FROM documents_th2 WHERE documents_th2 MATCH 'ภาษา';
 ### Querying Version
 ```sql
 .load ./zig-out/lib/libfts5_icu
-SELECT fts5_icu_version(); -- Returns "7.1.0"
+SELECT fts5_icu_version(); -- Returns "7.1.1"
 ```
 
 ### Upgrading from v6.x
@@ -239,6 +239,24 @@ validation) that **changes token forms** for Russian (русский → `russki
 rejects unresolvable locales at table creation. FTS5 indexes built with
 v7.0.0 tokenizers are **NOT compatible** — rebuild your FTS5 tables after
 upgrading, using the same procedure shown above.
+
+### Upgrading from v7.1.0
+
+Version 7.1.1 is a correctness-fix release (third audit pass, bugs #19–#25
+in `docs/BUGS.md`). Token forms are **unchanged for ordinary text**, so
+existing FTS5 indexes remain compatible — with one exception: documents
+containing Arabic honorific ligatures whose NFKD decomposition inserts
+whitespace (e.g. ﷺ U+FDFA) were tokenized with corrupted byte ranges and
+dropped words in ≤ 7.1.0 and are now handled correctly; rebuild tables
+holding such documents (procedure shown above). Behavior changes to note:
+
+- Query-time (v2 per-call) locale overrides are now validated like
+  CREATE-time locales — invalid overrides return an error instead of
+  silently using the wrong rules.
+- Locale matching accepts case-insensitive spellings (`JA_JP`) and no
+  longer hijacks unrelated languages sharing a two-letter prefix (`kok`,
+  `arn`, `jam`).
+- `zig build test` now runs the suite in Debug with safety checks enabled.
 
 ---
 

@@ -1052,7 +1052,7 @@ instrumented position-map dump; #20 with a query-time override probe;
 | #20 | MEDIUM | FIXED |
 | #21 | LOW | FIXED |
 | #22 | LOW | FIXED |
-| #23 | LOW | OPEN |
+| #23 | LOW | FIXED |
 | #24 | LOW | OPEN |
 | #25 | LOW | OPEN |
 
@@ -1282,7 +1282,7 @@ all three test-executable steps, and `scripts/test.sh`.
 
 ---
 
-## 23. [LOW] Dead `build_options` import in `tokenizer.zig` is a latent build breaker
+## 23. [LOW] Dead `build_options` import in `tokenizer.zig` is a latent build breaker [FIXED]
 
 **File:** `src/tokenizer.zig` line 6; `build.zig` lines ~206–269
 
@@ -1304,6 +1304,13 @@ will fail those three build steps with a missing-module error.
 
 Delete the import (preferred), or add `.name = "build_options"` to the
 three test-executable modules in `build.zig`.
+
+### Fix (implemented)
+
+Import deleted from `src/tokenizer.zig`. Verified `zig build test` plus
+all three test-executable steps (`run-transliterator`, `run-locale-tests`,
+`run-tokenizer-test`) still build and run — they no longer depend on
+import laziness.
 
 ---
 

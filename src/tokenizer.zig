@@ -2,7 +2,6 @@ const std = @import("std");
 const c = @import("c");
 const icu = @import("c_icu");
 const rules = @import("rules.zig");
-const build_options = @import("build_options");
 
 // Bug #22: single definition lives in c_icu.zig next to the ubrk_clone
 // resolver it gates.

@@ -3,7 +3,11 @@ const builtin = @import("builtin");
 const c = @import("c");
 
 const icu_ver: u32 = if (builtin.os.tag.isDarwin()) 0 else @intCast(c.U_ICU_VERSION_MAJOR_NUM);
-const has_ubrk_clone = icu_ver == 0 or icu_ver >= 69;
+
+// Bug #22: single source of truth for ubrk_clone availability. Darwin's
+// libicucore exports the unversioned symbol regardless of header version;
+// elsewhere require a modern-enough ICU build macro.
+pub const has_ubrk_clone = builtin.os.tag.isDarwin() or icu_ver >= 69;
 
 pub const ubrk_open = blk: {
     const name = if (icu_ver > 0)
@@ -53,13 +57,20 @@ pub const ubrk_getRuleStatus = blk: {
     break :blk @extern(*const @TypeOf(c.ubrk_getRuleStatus), .{ .name = name });
 };
 
-pub const ubrk_clone = if (@hasDecl(c, "ubrk_clone")) blk: {
-    const name = if (icu_ver > 0 and has_ubrk_clone)
-        std.fmt.comptimePrint("ubrk_clone_{d}", .{icu_ver})
+// Bug #22: resolved through our own canonical function type rather than
+// @TypeOf(c.ubrk_clone), and it degrades to `null` instead of @compileError
+// when the linked ICU predates ubrk_clone — the runtime fallback branch in
+// tokenizeText exists precisely for those builds, so they must still compile.
+// Callers gate on `has_ubrk_clone`.
+const UbrkCloneFn = *const fn (?*const c.UBreakIterator, ?*c.UErrorCode) callconv(.c) ?*c.UBreakIterator;
+
+pub const ubrk_clone: ?UbrkCloneFn = if (has_ubrk_clone) blk: {
+    const name = if (builtin.os.tag.isDarwin())
+        "ubrk_clone"
     else
-        "ubrk_clone";
-    break :blk @extern(*const @TypeOf(c.ubrk_clone), .{ .name = name });
-} else @compileError("ICU function 'ubrk_clone' not found");
+        std.fmt.comptimePrint("ubrk_clone_{d}", .{icu_ver});
+    break :blk @extern(UbrkCloneFn, .{ .name = name });
+} else null;
 
 pub const u_strToUTF8WithSub = blk: {
     const name = if (icu_ver > 0)

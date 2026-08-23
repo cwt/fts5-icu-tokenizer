@@ -1051,7 +1051,7 @@ instrumented position-map dump; #20 with a query-time override probe;
 | #19 | HIGH | FIXED |
 | #20 | MEDIUM | FIXED |
 | #21 | LOW | FIXED |
-| #22 | LOW | OPEN |
+| #22 | LOW | FIXED |
 | #23 | LOW | OPEN |
 | #24 | LOW | OPEN |
 | #25 | LOW | OPEN |
@@ -1235,7 +1235,7 @@ subtag-anchored (bug #21)`.
 
 ---
 
-## 22. [LOW] Pre-ICU-69 builds impossible although their runtime fallback exists
+## 22. [LOW] Pre-ICU-69 builds impossible although their runtime fallback exists [FIXED]
 
 **Files:** `src/c_icu.zig` lines 56–62 (`ubrk_clone` resolver),
 `src/tokenizer.zig` line 8 vs `src/c_icu.zig` line 6
@@ -1266,6 +1266,19 @@ optional function pointer) from `c_icu.zig`, derive it once from
 `@hasDecl(c, "ubrk_clone")` plus the version macro, use it in both places,
 and let `tokenizeText` take the fallback branch when absent instead of
 failing compilation.
+
+### Fix (implemented)
+
+`c_icu.zig` now declares the canonical function type
+(`*const fn (?*const UBreakIterator, ?*UErrorCode) callconv(.c) ?*UBreakIterator`)
+itself and resolves `ubrk_clone: ?UbrkCloneFn` via `@extern`, so nothing
+depends on the translate-C header declaring `ubrk_clone` — the resolver
+degrades to `null` (no `@compileError`) on old ICU and those builds link
+the existing fallback branch. `has_ubrk_clone` is exported from
+`c_icu.zig` (`isDarwin or icu_ver >= 69`) and `tokenizer.zig` consumes it
+instead of redefining its own copy; the call site unwraps the optional
+(`icu.ubrk_clone.?`) behind the gate. Verified `zig build test`,
+all three test-executable steps, and `scripts/test.sh`.
 
 ---
 

@@ -1,11 +1,12 @@
 const std = @import("std");
-const builtin = @import("builtin");
 const c = @import("c");
 const icu = @import("c_icu");
 const rules = @import("rules.zig");
 const build_options = @import("build_options");
 
-const has_ubrk_clone = if (builtin.os.tag.isDarwin()) true else c.U_ICU_VERSION_MAJOR_NUM >= 69;
+// Bug #22: single definition lives in c_icu.zig next to the ubrk_clone
+// resolver it gates.
+const has_ubrk_clone = icu.has_ubrk_clone;
 
 pub const IcuTokenizer = struct {
     pBreakIterator: ?*c.UBreakIterator,
@@ -422,7 +423,7 @@ pub fn tokenizeText(
     // Clone break iterator for thread safety
     var clone_status: c.UErrorCode = c.U_ZERO_ERROR;
     const pBreakIterator = if (has_ubrk_clone)
-        icu.ubrk_clone(baseBreakIterator, &clone_status)
+        icu.ubrk_clone.?(baseBreakIterator, &clone_status)
     else blk: {
         // Bug #17: use the effective (per-call override, when present) locale
         // instead of the tokenizer's own, matching ubrk_clone behavior on

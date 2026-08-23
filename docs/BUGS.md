@@ -1035,3 +1035,298 @@ reported byte range still points at the original word and whitespace is
 untouched, so the position map (bug #15) holds exactly. Regression tests:
 Arabic tokenizeText produces pure-ASCII `alrbyt`/`rbyt`/`qran`/`swal`, and
 `transliterateString` returns pure ASCII for both ar and he rules.
+
+---
+
+## New Findings (2026 audit, third pass)
+
+A third audit pass, again probe-driven against Homebrew ICU 78 (macOS),
+found one HIGH correctness bug, one MEDIUM consistency gap and five LOW
+issues. None are fixed yet. The #19 finding was reproduced with an
+instrumented position-map dump; #20 with a query-time override probe;
+#24/#25 by build inspection.
+
+| Bug | Severity | Status |
+|-----|----------|--------|
+| #19 | HIGH | OPEN |
+| #20 | MEDIUM | OPEN |
+| #21 | LOW | OPEN |
+| #22 | LOW | OPEN |
+| #23 | LOW | OPEN |
+| #24 | LOW | OPEN |
+| #25 | LOW | OPEN |
+
+---
+
+## 19. [HIGH] NFKD ligature expansion corrupts the token stream — wrong byte ranges + silent token loss
+
+**File:** `src/tokenizer.zig`
+**Lines:** ~233 (`isSpaceLikeU16`), ~487–524 (whitespace-anchor position
+map), ~557 (`nTokenByte <= 0` drop guard)
+
+### Description
+
+The bug #15 fix anchors the normalized→original position map at whitespace,
+under the stated invariant that every rule chain preserves whitespace **1:1
+and in order**. That invariant is false for compatibility characters whose
+NFKD decomposition *inserts* spaces that do not exist in the source text.
+The prime example is U+FDFA (ﷺ, ARABIC LIGATURE SALLALLAHOU ALAYHE
+WASALLAM): `NFKD(U+FDFA)` expands 1 UTF-16 unit into 19 units containing
+**three real U+0020 characters**. (U+FDFD has no decomposition mapping and
+is harmless; U+FDFA is reachable through the universal, ar, ru, he and el
+chains alike because they all start with `NFKD;`.)
+
+The anchor loop then mis-associates:
+
+1. The first phantom space consumes the input's only real space as its
+   "original" counterpart.
+2. Every later phantom space scans forward for a real space that does not
+   exist, hits end-of-text and breaks out of the loop.
+3. The trailing segment is scaled onto a **zero-length** original span
+   (`seg_orig_len == utf16_pos - seg_orig_start == 0`), so all remaining
+   positions collapse onto one original offset.
+
+Verified with an instrumented probe (position-map dump) on ICU 78, input
+`xﷺy z` (7 bytes), universal tokenizer:
+
+```
+norm = 'xsly allh ʿlyh wsllmy z'   pm[10..13] = 4, pm[14..22] = 5 (collapsed)
+emitted tokens:
+  token='xsly' [0,5)    ← franken-token: ligature letters glued onto 'x'
+  token='lyh'  [6,7)    ← index claims bytes [6,7)="lyh"; source bytes are "z"
+```
+
+`allh`, `ʿlyh`, `wsllmy`, the real `y` and the real `z` are silently
+dropped by the `nTokenByte <= 0` guard.
+
+### Impact
+
+- FTS5 offsets drive snippets, highlighting and phrase queries: the index
+  asserts document content that does not exist (`lyh` where the document
+  says `z`) and loses existing words entirely.
+- Silent data loss / index corruption on any text containing a
+  decompose-into-whitespace ligature. No error is surfaced.
+
+### Suggested fix
+
+Before building the anchor map, count space-like units in both texts. If
+the normalized count exceeds the original count (phantom whitespace),
+fall back to an ordinal-matching strategy: pair the first *k* normalized
+spaces with the *k* original spaces in order, treat surplus normalized
+spaces as ordinary characters, and always anchor segment ends at
+end-of-text so no segment can scale onto a zero-length span. A regression
+test should tokenize `xﷺy z` and assert every emitted range satisfies
+`iStart < iEnd` and that the token text at `[iStart,iEnd)` in the source
+round-trips (no franken-tokens, nothing dropped beyond known symbol drops).
+
+---
+
+## 20. [MEDIUM] Query-time `override_locale` bypasses locale validation (bug #16 fixed create-time only)
+
+**File:** `src/tokenizer.zig`
+**Lines:** ~39 (create-time validation), ~370–392 (`tokenizeText`
+override path opens `ubrk_open`/`utrans_openU` unvalidated)
+
+### Description
+
+Bug #16 added `isValidLocaleLanguage` to `IcuTokenizer.create`, so
+`CREATE VIRTUAL TABLE … tokenize='icu xx_NOPE'` fails fast. But the v2
+per-call override path feeds whatever `pLocale` SQLite hands over straight
+into `ubrk_open`/`utrans_openU` without validation. Verified by probe: a
+query-time override of `"xx_NOPE"` returns `SQLITE_OK` and tokenizes with
+the universal chain, while the identical string is rejected at create time.
+The two entry points have contradictory contracts for the same input.
+
+(Practical segmentation impact on modern ICU is small — dictionary-based
+breaking is script-driven, verified identical tokens for `ja`/`jp`/
+`xx_NOPE`/`JA`/`en_US`/`th` on Thai text — but rule-chain selection does
+diverge and, more importantly, typos stay silent instead of failing like
+they do at CREATE time.)
+
+### Impact
+
+- Typo'd row/query-time locales are silently accepted; behavior differs
+  from the documented, validated create-time path. Hard-to-debug
+  wrong-results instead of an error.
+
+### Suggested fix
+
+Run the existing `isValidLocaleLanguage` on the effective override before
+opening the dynamic break iterator/transliterator and return
+`c.SQLITE_ERROR` when it rejects the locale. Reuse — do not duplicate —
+the validator.
+
+---
+
+## 21. [LOW] `getLocaleInfo` language matching is case-sensitive and unanchored
+
+**File:** `src/rules.zig`
+**Lines:** 23–33 (`getLocaleInfo` prefix table)
+
+### Description
+
+Two defects in one matcher:
+
+1. **Case-sensitive:** `"JA"`, `"Ja"` etc. miss the alias table and fall to
+   the DEFAULT chain + tokenizer name `"icu"`, while `isValidLocaleLanguage`
+   accepts them as Japanese because `uloc_getLanguage` lowercases. ICU
+   itself treats locale IDs case-insensitively.
+2. **Unanchored:** the raw 2-byte prefix matches unrelated languages:
+   `kok` (Konkani) → ko rules, `arn` (Mapudungun) / `arp` (Arapaho) → ar
+   rules, `jam` (Jamaican Creole) → ja rules.
+
+Today the practical blast radius is small only because `ICU_RULE_DEFAULT`
+happens to be a superset of every per-locale chain — but that coupling is
+incidental, not designed, and `getTokenizerNameForLocale("JA_JP")`
+returning `"icu"` is already observable.
+
+### Impact
+
+- Inconsistent rule selection between identically-meaning locale spellings;
+  wrong tokenizer name reported for uppercase locales; latent breakage if
+  per-locale chains ever diverge from the DEFAULT superset.
+
+### Suggested fix
+
+Extract the language subtag up to the first `-`/`_`/`@` (or end of
+string), compare case-insensitively (`std.ascii.eqlIgnoreCase`), and keep
+the alias list. Extend the `rules mapping` unit test with `"JA_JP"`,
+`"kok"`, `"arn"` cases.
+
+---
+
+## 22. [LOW] Pre-ICU-69 builds impossible although their runtime fallback exists
+
+**Files:** `src/c_icu.zig` lines 56–62 (`ubrk_clone` resolver),
+`src/tokenizer.zig` line 8 vs `src/c_icu.zig` line 6
+
+### Description
+
+The `ubrk_clone` resolver hard-errors via `@compileError` when the
+translate-C header does not declare `ubrk_clone` (headers older than the
+ICU version that introduced it). Yet `tokenizeText` carries the
+non-clone `ubrk_open` fallback branch written precisely *for* those old
+ICU versions (bug #17). On such systems the project cannot even compile,
+so the graceful-degradation code is dead by construction and the two
+version gates contradict each other.
+
+Additionally `has_ubrk_clone` is defined twice with different expressions
+(`builtin.os.tag.isDarwin() or ver >= 69` vs `icu_ver == 0 or >= 69`) —
+equivalent today but drift-prone; a single shared definition should own it.
+
+### Impact
+
+- No effect on supported platforms today; blocks any future build against
+  genuinely old ICU and invites gate drift.
+
+### Suggested fix
+
+Make the resolver optional: expose `pub const has_ubrk_clone` (or an
+optional function pointer) from `c_icu.zig`, derive it once from
+`@hasDecl(c, "ubrk_clone")` plus the version macro, use it in both places,
+and let `tokenizeText` take the fallback branch when absent instead of
+failing compilation.
+
+---
+
+## 23. [LOW] Dead `build_options` import in `tokenizer.zig` is a latent build breaker
+
+**File:** `src/tokenizer.zig` line 6; `build.zig` lines ~206–269
+
+### Description
+
+`const build_options = @import("build_options");` is never referenced. It
+compiles only because Zig analyzes imports lazily. The three test
+executables (`test_transliterator`, `locale_specific_tests`,
+`test_locale_tokenizer`) import `tokenizer.zig` through module graphs that
+do **not** provide a `build_options` import — verified working today purely
+due to laziness. The first real use of the constant inside `tokenizer.zig`
+will fail those three build steps with a missing-module error.
+
+### Impact
+
+- None now; a confusing delayed compile error later.
+
+### Suggested fix
+
+Delete the import (preferred), or add `.name = "build_options"` to the
+three test-executable modules in `build.zig`.
+
+---
+
+## 24. [LOW] `build.zig`: duplicate artifact names/paths when `-Dlocale` names a loop locale
+
+**File:** `build.zig`
+**Lines:** 105–111 & 131–137 (top-level conditional libs) vs 141–193
+(unconditional per-locale loop)
+
+### Description
+
+With `-Dlocale=ja` (any of the eight loop locales), the top-level
+conditional libraries are named `fts5_icu_ja` / `fts5_icu_ja_legacy` —
+exactly what the unconditional loop also builds and installs. Verified:
+`zig build -Dlocale=ja` succeeds but compiles each colliding artifact
+twice and installs both to the same `zig-out/lib` path (last install
+wins). Today the duplicates are byte-equivalent builds; if the two option
+sets ever diverge (e.g. different `api_version` defaults), the silent
+overwrite picks whichever installs last.
+
+### Impact
+
+- Wasted double compilation; silent overwrite hazard on future divergence.
+
+### Suggested fix
+
+Skip the loop entries equal to `-Dlocale` (or skip the top-level
+conditional libs when `locale` is empty and rely on the loop), so each
+artifact name is produced exactly once.
+
+---
+
+## 25. [LOW] Unit tests run under ReleaseFast — safety-checked UB untested
+
+**File:** `build.zig` line 6 (optimize default) and lines 196–203 (test step)
+
+### Description
+
+`optimize` defaults to `.ReleaseFast` and `addTest` inherits the root
+module's optimize mode, so `zig build test` executes the suite without
+safety checks: integer overflow, OOB slice indexing and other
+panic-checked UB classes are compiled out precisely where this project's
+regression suite should catch them. Leak detection (testing allocator)
+still works, but e.g. a reintroduced off-by-one heap overflow of the bug
+#10 class would no longer trap in tests.
+
+### Impact
+
+- Weakened regression protection; bugs of the class previously fixed (#2,
+  #8, #10) would pass the suite silently if reintroduced.
+
+### Suggested fix
+
+Build the test module with Debug explicitly (separate options module or
+`.optimize = .Debug` on a dedicated test root module), keeping ReleaseFast
+as the default only for shipped libraries.
+
+---
+
+## Third-pass minor notes (style/hardening, unnumbered)
+
+- Rule-string substring sniffing is duplicated and fragile:
+  `"Russian-Latin/BGN"` probed 3× (`transliterateString` incl. its retry
+  branch, plus `tokenizeText`) and Arabic/Hebrew probed 2×
+  (`src/tokenizer.zig` ~92, ~115, ~153, ~356–358). Should be boolean flags
+  on `LocaleInfo` computed once, instead of re-scanning rule text per call.
+- `transliterateString` returns `allocator.dupe(u8, …)` of an internal
+  buffer (~line 160) — one avoidable allocation+copy per call; allocate the
+  final buffer directly.
+- `scripts/test_all.sh:116` pipes sqlite3 through `sed`, so `$?` belongs to
+  `sed`; that test can never fail. No `tests/*.sql` sets `.bail on` (works
+  on modern CLIs which exit non-zero on SQL errors, fragile on older ones).
+- Verified sound during this pass (no findings): all stack/heap SBO
+  switching and grow-on-overflow retry paths (bug #8 pattern replicated
+  correctly; no leak/UAF/double-free found under the testing allocator);
+  byte-offset-map completeness for valid and malformed UTF-8; position-map
+  monotonicity for well-formed inputs; entrypoint export filtering (bug
+  #13); `fts5_api` struct layout; `jp`/`cn`/`kr` alias resolution (ICU
+  canonicalizes them); `create`/`destroy` errdefer ordering.

@@ -1048,7 +1048,7 @@ instrumented position-map dump; #20 with a query-time override probe;
 
 | Bug | Severity | Status |
 |-----|----------|--------|
-| #19 | HIGH | OPEN |
+| #19 | HIGH | FIXED |
 | #20 | MEDIUM | OPEN |
 | #21 | LOW | OPEN |
 | #22 | LOW | OPEN |
@@ -1058,7 +1058,7 @@ instrumented position-map dump; #20 with a query-time override probe;
 
 ---
 
-## 19. [HIGH] NFKD ligature expansion corrupts the token stream — wrong byte ranges + silent token loss
+## 19. [HIGH] NFKD ligature expansion corrupts the token stream — wrong byte ranges + silent token loss [FIXED]
 
 **File:** `src/tokenizer.zig`
 **Lines:** ~233 (`isSpaceLikeU16`), ~487–524 (whitespace-anchor position
@@ -1118,6 +1118,27 @@ end-of-text so no segment can scale onto a zero-length span. A regression
 test should tokenize `xﷺy z` and assert every emitted range satisfies
 `iStart < iEnd` and that the token text at `[iStart,iEnd)` in the source
 round-trips (no franken-tokens, nothing dropped beyond known symbol drops).
+
+### Fix (implemented)
+
+Adopted ordinal matching, but paired from the **END** rather than the
+start: ligature-inserted whitespace clusters inside expanded content,
+while structural sentence whitespace aligns terminally, so end-pairing
+preserves the anchor that matters most (the one before the final word).
+`tokenizeText` now counts space-like units on both sides (`phantom_spaces`
+= surplus), skips that many leading normalized spaces as ordinary
+characters, and pairs the rest sequentially; segment scaling moved into a
+`fillSegment` helper that also pins degenerate zero-length original spans
+to their boundary instead of scaling onto them.
+
+Post-fix behavior for `xﷺy z` (verified by probe): ranges are monotonic
+and in-bounds; `x` keeps [0,1); the final `z` survives (previously
+dropped); no token claims foreign bytes across anchors. Words entirely
+inside the expanded ligature content may still collapse to zero-width
+ranges and be dropped — information lost in the expansion cannot be
+recovered — but they can no longer misrepresent unrelated source bytes.
+Regression test: `tokenizeText ligature-inserted whitespace keeps ranges
+sane (bug #19)`.
 
 ---
 

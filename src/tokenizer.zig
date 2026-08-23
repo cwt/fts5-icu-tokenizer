@@ -225,14 +225,35 @@ fn premapRussianYat(u16buf: []c.UChar) void {
     }
 }
 
-// Bug #15: every transliteration chain is length-preserving (1:1) at
-// whitespace, so whitespace positions are exact anchors between the original
+// Bug #15: every transliteration chain preserves existing whitespace 1:1,
+// so original whitespace positions are exact anchors between the original
 // and the normalized text. Verified by probe: NFKD maps NBSP (U+00A0) and all
 // of U+2000..U+200A, U+202F, U+205F, U+3000 to U+0020, while ZWSP (U+200B),
-// LS (U+2028), PS (U+2029) and U+1680 do not decompose (they are never anchors).
+// LS (U+2028), PS (U+2029) and U+1680 do not decompose (they are never
+// anchors). Bug #19 exception: NFKD can also CREATE whitespace that the
+// source never had (U+FDFA expands into text containing spaces); those
+// phantom spaces are handled by end-pairing in tokenizeText.
 fn isSpaceLikeU16(ch: c.UChar) bool {
     return ch == 0x20 or (ch >= 0x09 and ch <= 0x0D) or ch == 0xA0 or
         (ch >= 0x2000 and ch <= 0x200A) or ch == 0x202F or ch == 0x205F or ch == 0x3000;
+}
+
+// Fill `pm[ns..ne]` (a normalized-text segment) by round-half-up proportional
+// scaling onto the original-text span `[os, oe)`. Used between whitespace
+// anchors; a 1:1 segment maps exactly. A degenerate empty original span pins
+// to its boundary instead of dividing by zero.
+fn fillSegment(pm: []i32, ns: usize, ne: usize, os: usize, oe: usize) void {
+    const seg_norm_len = ne - ns;
+    if (seg_norm_len == 0) return;
+    const seg_orig_len = oe - os;
+    if (seg_orig_len == 0) {
+        for (ns..ne) |k| pm[k] = @intCast(os);
+        return;
+    }
+    for (ns..ne) |k| {
+        const rel = (k - ns) * seg_orig_len;
+        pm[k] = @intCast(os + (rel + seg_norm_len / 2) / seg_norm_len);
+    }
 }
 
 // Bug #16: validate a locale string before handing it to ICU. `ubrk_open`
@@ -470,13 +491,23 @@ pub fn tokenizeText(
         normText = cur_norm[0..norm_len];
 
         // Bug #15: position map from normalized UTF-16 position -> original
-        // UTF-16 position. Whitespace is an exact 1:1 anchor under every rule
+        // UTF-16 position. Whitespace is an exact anchor under every rule
         // chain (see isSpaceLikeU16), so anchor at whitespace and use
         // round-half-up proportional scaling within each space-delimited
         // segment. The old whole-string proportional map compressed every
         // later position whenever any transliteration changed unit counts
         // (ﬁ->fi, щ->shch), misreporting offsets and silently dropping tokens
         // when mapped positions collided (nTokenByte <= 0).
+        //
+        // Bug #19: NFKD can also INSERT whitespace that does not exist in the
+        // source — U+FDFA (ﷺ) decomposes into 19 units containing three real
+        // spaces. Such "phantom" anchors must not steal original whitespace:
+        // normalized spaces are therefore paired with original spaces from
+        // the END (inserted spaces cluster inside expanded ligature content,
+        // while structural sentence whitespace aligns terminally). Surplus
+        // normalized spaces are treated as ordinary characters, and a deficit
+        // (more original than normalized spaces) simply leaves the extra
+        // original positions inside the trailing proportional segment.
         const pm_cap = norm_len + 1;
         const pm = if (pm_cap <= STACK_CAP * 3 + 1)
             stack_posmap[0..pm_cap]
@@ -484,28 +515,33 @@ pub fn tokenizeText(
             heap_posmap = try allocator.alloc(i32, pm_cap);
             break :blk2 heap_posmap.?;
         };
+        var norm_space_total: usize = 0;
+        for (normText) |ch| {
+            if (isSpaceLikeU16(ch)) norm_space_total += 1;
+        }
+        var orig_space_total: usize = 0;
+        for (utf16_text_buffer[0..utf16_pos]) |ch| {
+            if (isSpaceLikeU16(ch)) orig_space_total += 1;
+        }
+        const phantom_spaces = if (norm_space_total > orig_space_total)
+            norm_space_total - orig_space_total
+        else
+            0;
+
+        var seen_norm_spaces: usize = 0;
         var orig_pos: usize = 0;
         var seg_orig_start: usize = 0;
         var seg_norm_start: usize = 0;
-        for (0..norm_len) |i| {
-            if (orig_pos >= utf16_pos) break;
+        var i: usize = 0;
+        while (i < norm_len) : (i += 1) {
             if (!isSpaceLikeU16(normText[i])) continue;
+            seen_norm_spaces += 1;
+            if (seen_norm_spaces <= phantom_spaces) continue;
             while (orig_pos < utf16_pos and !isSpaceLikeU16(utf16_text_buffer[orig_pos])) {
                 orig_pos += 1;
             }
-            if (orig_pos >= utf16_pos) {
-                // No whitespace left in the original text; leave the rest to
-                // the trailing segment below (defensive; cannot happen with
-                // current rule chains, which preserve whitespace).
-                break;
-            }
             if (i > seg_norm_start) {
-                const seg_orig_len = orig_pos - seg_orig_start;
-                const seg_norm_len = i - seg_norm_start;
-                for (seg_norm_start..i) |k| {
-                    const rel = (k - seg_norm_start) * seg_orig_len;
-                    pm[k] = @intCast(seg_orig_start + (rel + seg_norm_len / 2) / seg_norm_len);
-                }
+                fillSegment(pm, seg_norm_start, i, seg_orig_start, orig_pos);
             }
             pm[i] = @intCast(orig_pos);
             seg_orig_start = orig_pos + 1;
@@ -513,12 +549,7 @@ pub fn tokenizeText(
             orig_pos += 1;
         }
         if (norm_len > seg_norm_start) {
-            const seg_orig_len = utf16_pos - seg_orig_start;
-            const seg_norm_len = norm_len - seg_norm_start;
-            for (seg_norm_start..norm_len) |k| {
-                const rel = (k - seg_norm_start) * seg_orig_len;
-                pm[k] = @intCast(seg_orig_start + (rel + seg_norm_len / 2) / seg_norm_len);
-            }
+            fillSegment(pm, seg_norm_start, norm_len, seg_orig_start, utf16_pos);
         }
         pm[norm_len] = @intCast(utf16_pos);
         position_map = pm;
@@ -1281,4 +1312,41 @@ test "ja pre-transliteration: hiragana+ー produces single token" {
 
     // Both paths converge to the same normalized token
     try std.testing.expectEqualStrings(cap_kata.tokens.items[0], cap_hira.tokens.items[0]);
+}
+
+// Bug #19: NFKD expands U+FDFA (ﷺ) into 19 UTF-16 units that CONTAIN three
+// spaces absent from the source. The old start-paired anchor map let those
+// phantom spaces steal the input's real space: tokens were emitted with byte
+// ranges of unrelated words (the franken-token 'lyh' claimed the bytes of 'z')
+// and real words were silently dropped. With end-pairing, every emitted range
+// must stay inside the source, the final word must survive, and no token may
+// claim a range it cannot own.
+test "tokenizeText ligature-inserted whitespace keeps ranges sane (bug #19)" {
+    const gpa = std.testing.allocator;
+
+    const tok = try IcuTokenizer.create(gpa, "");
+    defer tok.destroy(gpa);
+
+    // bytes: x=0, ﷺ=1..4, y=4, space=5, z=6 (len 7)
+    var cap: CaptureWithRange = .{ .gpa = gpa, .tokens = .empty };
+    defer {
+        for (cap.tokens.items) |t| gpa.free(t.text);
+        cap.tokens.deinit(gpa);
+    }
+    const rc = try tokenizeText(gpa, tok, "xﷺy z", null, &cap, captureRangeCallback);
+    try std.testing.expectEqual(@as(c_int, c.SQLITE_OK), rc);
+    try std.testing.expect(cap.tokens.items.len > 0);
+
+    var found_z = false;
+    for (cap.tokens.items) |t| {
+        // Every range must be non-empty and within the source text.
+        try std.testing.expect(t.i_start >= 0);
+        try std.testing.expect(t.i_start < t.i_end);
+        try std.testing.expect(t.i_end <= @as(i32, @intCast("x\u{FDFA}y z".len)));
+        // The pre-fix franken signature: 'lyh' claiming the bytes of 'z'.
+        try std.testing.expect(!(std.mem.eql(u8, t.text, "lyh") and t.i_start == 6));
+        if (std.mem.eql(u8, t.text, "z")) found_z = true;
+    }
+    // The last source word must not be lost to phantom-space misalignment.
+    try std.testing.expect(found_z);
 }

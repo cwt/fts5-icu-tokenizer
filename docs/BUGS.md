@@ -1053,7 +1053,7 @@ instrumented position-map dump; #20 with a query-time override probe;
 | #21 | LOW | FIXED |
 | #22 | LOW | FIXED |
 | #23 | LOW | FIXED |
-| #24 | LOW | OPEN |
+| #24 | LOW | FIXED |
 | #25 | LOW | OPEN |
 
 ---
@@ -1314,7 +1314,7 @@ import laziness.
 
 ---
 
-## 24. [LOW] `build.zig`: duplicate artifact names/paths when `-Dlocale` names a loop locale
+## 24. [LOW] `build.zig`: duplicate artifact names/paths when `-Dlocale` names a loop locale [FIXED]
 
 **File:** `build.zig`
 **Lines:** 105–111 & 131–137 (top-level conditional libs) vs 141–193
@@ -1340,6 +1340,14 @@ overwrite picks whichever installs last.
 Skip the loop entries equal to `-Dlocale` (or skip the top-level
 conditional libs when `locale` is empty and rely on the loop), so each
 artifact name is produced exactly once.
+
+### Fix (implemented)
+
+The per-locale loop now `continue`s when the locale equals the `-Dlocale`
+option, leaving those two artifacts to the top-level conditional
+libraries. Verified: default build still installs all 36 libraries;
+`zig build -Dlocale=ja` compiles each artifact exactly once (4 ja files
+in zig-out/lib: dylib+so × v2+legacy).
 
 ---
 

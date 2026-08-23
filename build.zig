@@ -139,6 +139,12 @@ pub fn build(b: *std.Build) void {
     // Build locale-specific libraries
     const locales = [_][]const u8{ "ja", "zh", "th", "ko", "ar", "ru", "he", "el" };
     for (locales) |loc| {
+        // Bug #24: when -Dlocale names one of the loop locales, the
+        // top-level conditional libraries above already produce
+        // fts5_icu_<loc> and fts5_icu_<loc>_legacy; emitting them again
+        // would compile each artifact twice and install both to the same
+        // zig-out/lib path (last install silently wins).
+        if (locale.len > 0 and std.mem.eql(u8, loc, locale)) continue;
         // v2
         const loc_options = b.addOptions();
         loc_options.addOption([]const u8, "locale", loc);

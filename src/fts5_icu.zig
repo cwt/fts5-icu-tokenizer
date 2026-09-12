@@ -66,6 +66,10 @@ fn icuCreate(
     ppOut: [*c]?*Fts5Tokenizer,
 ) callconv(.c) c_int {
     _ = pCtx;
+    // Bug #30: FTS5 always passes a valid out-pointer, but dereferencing it
+    // unchecked turns a contract violation into a segfault. Fail first,
+    // before allocating anything (so this path cannot leak either).
+    if (ppOut == null) return c.SQLITE_ERROR;
     var locale: []const u8 = build_options.locale;
     // FTS5 passes the tokenizer NAME as azArg[0]; an optional locale override is
     // the SECOND argument (e.g. `tokenize = 'icu th'`), matching SQLite's own
@@ -202,7 +206,8 @@ fn initExtensionForLocaleInner(
     const pFts5Api = getFts5Api(db, pApi);
     if (pFts5Api == null) {
         if (pApi.mprintf) |mprintf_fn| {
-            pzErrMsg.* = mprintf_fn("Failed to get FTS5 API");
+            // Bug #30: pzErrMsg may be null when the caller wants no message.
+            if (pzErrMsg != null) pzErrMsg.* = mprintf_fn("Failed to get FTS5 API");
         }
         return c.SQLITE_ERROR;
     }
@@ -211,7 +216,7 @@ fn initExtensionForLocaleInner(
     if (use_v2) {
         if (api.iVersion < 3) {
             if (pApi.mprintf) |mprintf_fn| {
-                pzErrMsg.* = mprintf_fn("FTS5 v2 API not available");
+                if (pzErrMsg != null) pzErrMsg.* = mprintf_fn("FTS5 v2 API not available");
             }
             return c.SQLITE_ERROR;
         }
@@ -221,10 +226,10 @@ fn initExtensionForLocaleInner(
     const tok_name_c = std.heap.c_allocator.dupeZ(u8, tok_name) catch return c.SQLITE_NOMEM;
     defer std.heap.c_allocator.free(tok_name_c);
 
+    // Bug #30: a null register function is a clean error, not a segfault.
     const rc = if (use_v2)
-        api.xCreateTokenizer_v2.?(api, tok_name_c.ptr, null, &global_tokenizer_v2, null)
-    else
-        api.xCreateTokenizer.?(api, tok_name_c.ptr, null, &global_tokenizer_v1, null);
+        if (api.xCreateTokenizer_v2) |reg| reg(api, tok_name_c.ptr, null, &global_tokenizer_v2, null) else c.SQLITE_ERROR
+    else if (api.xCreateTokenizer) |reg| reg(api, tok_name_c.ptr, null, &global_tokenizer_v1, null) else c.SQLITE_ERROR;
 
     if (rc != c.SQLITE_OK) {
         if (pApi.mprintf) |mprintf_fn| {
@@ -233,7 +238,7 @@ fn initExtensionForLocaleInner(
                 "Failed to register ICU tokenizer: %s"
             else
                 "Failed to register ICU tokenizer (legacy): %s";
-            pzErrMsg.* = mprintf_fn(fmt, err_msg);
+            if (pzErrMsg != null) pzErrMsg.* = mprintf_fn(fmt, err_msg);
         }
     }
     return rc;
@@ -436,4 +441,13 @@ test "icuCreate ignores tokenizer name, uses arg[1] as locale (bug #9)" {
         try std.testing.expectEqualStrings("th", tok.locale_slice);
         tok.destroy(std.heap.c_allocator);
     }
+}
+
+// Bug #30: a null out-pointer is a clean error, not a segfault — and the
+// guard runs before any allocation, so this path cannot leak.
+test "icuCreate rejects null output pointer (bug #30)" {
+    const arg = "icu";
+    var azArg = [_][*c]const u8{arg.ptr};
+    const rc = icuCreate(null, &azArg, 1, null);
+    try std.testing.expectEqual(@as(c_int, c.SQLITE_ERROR), rc);
 }

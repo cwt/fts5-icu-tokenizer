@@ -303,11 +303,16 @@ fn isSpaceLikeU16(ch: c.UChar) bool {
 fn fillSegment(pm: []i32, ns: usize, ne: usize, os: usize, oe: usize) void {
     const seg_norm_len = ne - ns;
     if (seg_norm_len == 0) return;
-    const seg_orig_len = oe - os;
-    if (seg_orig_len == 0) {
-        for (ns..ne) |k| pm[k] = @intCast(os);
+    // Bug #31: a degenerate — or, defensively, inverted — original span pins
+    // to its boundary instead of dividing by zero or underflowing `oe - os`
+    // (Debug panic / ReleaseFast wrap). Inverted spans cannot occur today
+    // (see the phantom-space accounting), but a future rule change must not
+    // turn them into memory-unsafety or uninitialized map reads.
+    if (os >= oe) {
+        for (ns..ne) |k| pm[k] = @intCast(@min(os, oe));
         return;
     }
+    const seg_orig_len = oe - os;
     for (ns..ne) |k| {
         const rel = (k - ns) * seg_orig_len;
         pm[k] = @intCast(os + (rel + seg_norm_len / 2) / seg_norm_len);
@@ -1239,6 +1244,23 @@ test "tokenizeText Russian BGN keeps letters distinct (bug #14)" {
         if (std.mem.eql(u8, t, "russkiy")) found[8] = true;
     }
     for (found) |f| try std.testing.expect(f);
+}
+
+// Bug #31: an inverted original span must pin to its boundary, not
+// underflow `oe - os` (Debug panic / ReleaseFast wrap). Same-file tests can
+// reach the private helper directly.
+test "fillSegment pins degenerate and inverted spans (bug #31)" {
+    var deg: [3]i32 = undefined;
+    fillSegment(&deg, 0, 3, 5, 5);
+    for (deg) |v| try std.testing.expectEqual(@as(i32, 5), v);
+
+    var inv: [4]i32 = undefined;
+    fillSegment(&inv, 0, 4, 9, 3);
+    for (inv) |v| try std.testing.expectEqual(@as(i32, 3), v);
+
+    var empty: [2]i32 = .{ 7, 7 };
+    fillSegment(&empty, 1, 1, 9, 3);
+    try std.testing.expectEqual([2]i32{ 7, 7 }, empty);
 }
 
 // Bug #15: transliteration expansions (ﬁ->fi, щ->shch) must not skew the byte

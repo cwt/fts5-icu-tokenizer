@@ -118,6 +118,13 @@ pub fn utf8ToUtf16Alloc(allocator: std.mem.Allocator, text: []const u8) ![:0]c.U
 // ~1.6 GiB, comfortably inside i32 range; larger inputs fail loudly.
 pub const max_text_len: usize = 128 * 1024 * 1024;
 
+// Bug #29: bound on transliteration grow-and-retry loops. ICU reports the
+// exact size needed on overflow, so one retry always suffices in practice;
+// the loop is defense against a misbehaving ICU build, and persistent
+// overflow fails loudly at the existing U_FAILURE checks below instead of
+// looping forever or silently dropping data.
+const max_translit_retries: u32 = 8;
+
 pub fn transliterateString(allocator: std.mem.Allocator, input: []const u8, rule_str: []const u8) ![]u8 {
     if (input.len > max_text_len) return error.TextTooLarge;
     var status: c.UErrorCode = c.U_ZERO_ERROR;
@@ -147,7 +154,8 @@ pub fn transliterateString(allocator: std.mem.Allocator, input: []const u8, rule
     var out_len: i32 = @intCast(input_u16.len);
     status = c.U_ZERO_ERROR;
     icu.utrans_transUChars(transliterator, output_u16.ptr, &out_len, @intCast(capacity), 0, &limit, &status);
-    if (status == c.U_BUFFER_OVERFLOW_ERROR) {
+    var expand_retries: u32 = 0;
+    while (status == c.U_BUFFER_OVERFLOW_ERROR and expand_retries < max_translit_retries) : (expand_retries += 1) {
         // Transliteration expanded beyond the buffer (bug #3): grow to the
         // required length and retry, instead of returning an error.
         //
@@ -586,7 +594,8 @@ pub fn tokenizeText(
         var tlimit: i32 = @intCast(utf16_pos);
         var tlen: i32 = @intCast(utf16_pos);
         icu.utrans_transUChars(pClonedTransliterator, cur_norm.ptr, &tlen, @intCast(cur_norm.len), 0, &tlimit, &ts);
-        if (ts == c.U_BUFFER_OVERFLOW_ERROR) {
+        var norm_retries: u32 = 0;
+        while (ts == c.U_BUFFER_OVERFLOW_ERROR and norm_retries < max_translit_retries) : (norm_retries += 1) {
             const need: usize = @as(usize, @intCast(tlen)) + 64;
             if (use_stack) {
                 heap_norm = try allocator.alloc(c.UChar, need);
@@ -729,7 +738,8 @@ pub fn tokenizeText(
 
         var conv_status: c.UErrorCode = c.U_ZERO_ERROR;
         _ = icu.u_strToUTF8WithSub(destBuf.ptr, @intCast(destBuf.len), &utf8_len, normText[t_start..].ptr, @intCast(nSrc), 0xFFFD, null, &conv_status);
-        if (conv_status == c.U_BUFFER_OVERFLOW_ERROR or (c.U_FAILURE(conv_status) and utf8_len > @as(i32, @intCast(destBuf.len)))) {
+        var dest_retries: u32 = 0;
+        while ((conv_status == c.U_BUFFER_OVERFLOW_ERROR or (c.U_FAILURE(conv_status) and utf8_len > @as(i32, @intCast(destBuf.len)))) and dest_retries < max_translit_retries) : (dest_retries += 1) {
             const newDestSize: usize = @intCast(utf8_len + 64);
             if (heap_dest) |hd| {
                 heap_dest = try allocator.realloc(hd, newDestSize);
@@ -743,7 +753,11 @@ pub fn tokenizeText(
             _ = icu.u_strToUTF8WithSub(destBuf.ptr, @intCast(destBuf.len), &utf8_len, normText[t_start..].ptr, @intCast(nSrc), 0xFFFD, null, &conv_status);
         }
 
-        if (!c.U_FAILURE(conv_status) and utf8_len > 0) {
+        // Bug #29: persistent encoding failure fails the document loudly
+        // instead of silently dropping the token.
+        if (c.U_FAILURE(conv_status)) return c.SQLITE_ERROR;
+
+        if (utf8_len > 0) {
             // Bug #18: strip transliteration modifier letters (U+02BF/U+02BB/
             // U+2019) from ar/he tokens so they are pure ASCII. This compacts
             // only the token text; the byte range still points at the original

@@ -110,7 +110,16 @@ pub fn utf8ToUtf16Alloc(allocator: std.mem.Allocator, text: []const u8) ![:0]c.U
     return std.unicode.utf8ToUtf16LeAllocZ(allocator, text);
 }
 
+// Bug #27: every ICU length parameter below is an i32, and several
+// intermediate sizes derive from the input length (UTF-16 units <= bytes,
+// normalized <= 3x + 64, UTF-8 token buffer <= 4x + 64). Inputs larger than
+// this cap could overflow an unchecked @intCast — silent wrap plus disabled
+// bounds checks in ReleaseFast. 128 MiB keeps every derived size under
+// ~1.6 GiB, comfortably inside i32 range; larger inputs fail loudly.
+pub const max_text_len: usize = 128 * 1024 * 1024;
+
 pub fn transliterateString(allocator: std.mem.Allocator, input: []const u8, rule_str: []const u8) ![]u8 {
+    if (input.len > max_text_len) return error.TextTooLarge;
     var status: c.UErrorCode = c.U_ZERO_ERROR;
 
     const rules_u16 = try utf8ToUtf16Alloc(allocator, rule_str);
@@ -362,6 +371,7 @@ pub fn tokenizeText(
     xToken: *const fn (?*anyopaque, c_int, [*c]const u8, c_int, c_int, c_int) callconv(.c) c_int,
 ) !c_int {
     if (text.len == 0) return c.SQLITE_OK;
+    if (text.len > max_text_len) return c.SQLITE_TOOBIG;
 
     const STACK_CAP = 512;
     const req_u16_cap = text.len * 2 + 1;
@@ -861,6 +871,24 @@ fn dummyTokenCallback(
     _ = iStart;
     _ = iEnd;
     return c.SQLITE_OK;
+}
+
+// Bug #27: oversized inputs must fail loudly at the boundary instead of
+// overflowing an unchecked @intCast downstream. The guards above return
+// before any allocation, so this test needs only the length, not the work.
+test "oversized input is rejected, not cast-truncated (bug #27)" {
+    const gpa = std.testing.allocator;
+
+    const big = try gpa.alloc(u8, max_text_len + 1);
+    defer gpa.free(big);
+    @memset(big, 'a');
+
+    const tok = try IcuTokenizer.create(gpa, "");
+    defer tok.destroy(gpa);
+
+    const rc = try tokenizeText(gpa, tok, big, null, null, dummyTokenCallback);
+    try std.testing.expectEqual(@as(c_int, c.SQLITE_TOOBIG), rc);
+    try std.testing.expectError(error.TextTooLarge, transliterateString(gpa, big, rules.ICU_RULE_DEFAULT));
 }
 
 test "tokenizeText memory safety and override_locale" {

@@ -30,16 +30,23 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    translate_c.addSystemIncludePath(.{ .cwd_relative = "/usr/include" });
-    translate_c.addSystemIncludePath(.{ .cwd_relative = "/usr/local/include" });
-    if (is_macos) {
-        translate_c.addSystemIncludePath(.{ .cwd_relative = "/opt/homebrew/opt/sqlite/include" });
-        translate_c.addSystemIncludePath(.{ .cwd_relative = "/opt/homebrew/opt/icu4c/include" });
-    }
+    // Bug #34: one helper for the include paths shared by the translate-C
+    // step and its module (c_mod additionally gains the macOS paths, which
+    // is harmless — extra -I entries — and more correct there).
+    const addIncludes = struct {
+        fn apply(step: anytype, macos: bool) void {
+            step.addSystemIncludePath(.{ .cwd_relative = "/usr/include" });
+            step.addSystemIncludePath(.{ .cwd_relative = "/usr/local/include" });
+            if (macos) {
+                step.addSystemIncludePath(.{ .cwd_relative = "/opt/homebrew/opt/sqlite/include" });
+                step.addSystemIncludePath(.{ .cwd_relative = "/opt/homebrew/opt/icu4c/include" });
+            }
+        }
+    }.apply;
+    addIncludes(translate_c, is_macos);
 
     const c_mod = translate_c.createModule();
-    c_mod.addSystemIncludePath(.{ .cwd_relative = "/usr/include" });
-    c_mod.addSystemIncludePath(.{ .cwd_relative = "/usr/local/include" });
+    addIncludes(c_mod, is_macos);
     if (is_macos) {
         c_mod.addLibraryPath(.{ .cwd_relative = "/opt/homebrew/opt/sqlite/lib" });
         c_mod.addLibraryPath(.{ .cwd_relative = "/opt/homebrew/opt/icu4c/lib" });

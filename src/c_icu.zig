@@ -9,53 +9,24 @@ const icu_ver: u32 = if (builtin.os.tag.isDarwin()) 0 else @intCast(c.U_ICU_VERS
 // elsewhere require a modern-enough ICU build macro.
 pub const has_ubrk_clone = builtin.os.tag.isDarwin() or icu_ver >= 69;
 
-pub const ubrk_open = blk: {
-    const name = if (icu_ver > 0)
-        std.fmt.comptimePrint("ubrk_open_{d}", .{icu_ver})
+// Bug #34: one name helper instead of fifteen near-identical version
+// branches. Each resolution keeps its explicit short symbol string, so
+// grepping for a symbol name still finds it. (A fuller helper returning
+// `@extern(T, ...)` from a generic function is rejected: @extern needs a
+// concrete pointer type, so the call stays at container scope.)
+fn icuName(comptime short: []const u8) [:0]const u8 {
+    return if (icu_ver > 0)
+        std.fmt.comptimePrint("{s}_{d}", .{ short, icu_ver })
     else
-        "ubrk_open";
-    break :blk @extern(*const @TypeOf(c.ubrk_open), .{ .name = name });
-};
+        std.fmt.comptimePrint("{s}", .{short});
+}
 
-pub const ubrk_close = blk: {
-    const name = if (icu_ver > 0)
-        std.fmt.comptimePrint("ubrk_close_{d}", .{icu_ver})
-    else
-        "ubrk_close";
-    break :blk @extern(*const @TypeOf(c.ubrk_close), .{ .name = name });
-};
-
-pub const ubrk_setText = blk: {
-    const name = if (icu_ver > 0)
-        std.fmt.comptimePrint("ubrk_setText_{d}", .{icu_ver})
-    else
-        "ubrk_setText";
-    break :blk @extern(*const @TypeOf(c.ubrk_setText), .{ .name = name });
-};
-
-pub const ubrk_first = blk: {
-    const name = if (icu_ver > 0)
-        std.fmt.comptimePrint("ubrk_first_{d}", .{icu_ver})
-    else
-        "ubrk_first";
-    break :blk @extern(*const @TypeOf(c.ubrk_first), .{ .name = name });
-};
-
-pub const ubrk_next = blk: {
-    const name = if (icu_ver > 0)
-        std.fmt.comptimePrint("ubrk_next_{d}", .{icu_ver})
-    else
-        "ubrk_next";
-    break :blk @extern(*const @TypeOf(c.ubrk_next), .{ .name = name });
-};
-
-pub const ubrk_getRuleStatus = blk: {
-    const name = if (icu_ver > 0)
-        std.fmt.comptimePrint("ubrk_getRuleStatus_{d}", .{icu_ver})
-    else
-        "ubrk_getRuleStatus";
-    break :blk @extern(*const @TypeOf(c.ubrk_getRuleStatus), .{ .name = name });
-};
+pub const ubrk_open = @extern(*const @TypeOf(c.ubrk_open), .{ .name = icuName("ubrk_open") });
+pub const ubrk_close = @extern(*const @TypeOf(c.ubrk_close), .{ .name = icuName("ubrk_close") });
+pub const ubrk_setText = @extern(*const @TypeOf(c.ubrk_setText), .{ .name = icuName("ubrk_setText") });
+pub const ubrk_first = @extern(*const @TypeOf(c.ubrk_first), .{ .name = icuName("ubrk_first") });
+pub const ubrk_next = @extern(*const @TypeOf(c.ubrk_next), .{ .name = icuName("ubrk_next") });
+pub const ubrk_getRuleStatus = @extern(*const @TypeOf(c.ubrk_getRuleStatus), .{ .name = icuName("ubrk_getRuleStatus") });
 
 // Bug #22: resolved through our own canonical function type rather than
 // @TypeOf(c.ubrk_clone), and it degrades to `null` instead of @compileError
@@ -72,74 +43,12 @@ pub const ubrk_clone: ?UbrkCloneFn = if (has_ubrk_clone) blk: {
     break :blk @extern(UbrkCloneFn, .{ .name = name });
 } else null;
 
-pub const u_strToUTF8WithSub = blk: {
-    const name = if (icu_ver > 0)
-        std.fmt.comptimePrint("u_strToUTF8WithSub_{d}", .{icu_ver})
-    else
-        "u_strToUTF8WithSub";
-    break :blk @extern(*const @TypeOf(c.u_strToUTF8WithSub), .{ .name = name });
-};
-
-pub const u_strToUTF8 = blk: {
-    const name = if (icu_ver > 0)
-        std.fmt.comptimePrint("u_strToUTF8_{d}", .{icu_ver})
-    else
-        "u_strToUTF8";
-    break :blk @extern(*const @TypeOf(c.u_strToUTF8), .{ .name = name });
-};
-
-pub const utrans_openU = blk: {
-    const name = if (icu_ver > 0)
-        std.fmt.comptimePrint("utrans_openU_{d}", .{icu_ver})
-    else
-        "utrans_openU";
-    break :blk @extern(*const @TypeOf(c.utrans_openU), .{ .name = name });
-};
-
-pub const utrans_close = blk: {
-    const name = if (icu_ver > 0)
-        std.fmt.comptimePrint("utrans_close_{d}", .{icu_ver})
-    else
-        "utrans_close";
-    break :blk @extern(*const @TypeOf(c.utrans_close), .{ .name = name });
-};
-
-pub const utrans_clone = blk: {
-    const name = if (icu_ver > 0)
-        std.fmt.comptimePrint("utrans_clone_{d}", .{icu_ver})
-    else
-        "utrans_clone";
-    break :blk @extern(*const @TypeOf(c.utrans_clone), .{ .name = name });
-};
-
-pub const utrans_transUChars = blk: {
-    const name = if (icu_ver > 0)
-        std.fmt.comptimePrint("utrans_transUChars_{d}", .{icu_ver})
-    else
-        "utrans_transUChars";
-    break :blk @extern(*const @TypeOf(c.utrans_transUChars), .{ .name = name });
-};
-
-pub const uloc_getLanguage = blk: {
-    const name = if (icu_ver > 0)
-        std.fmt.comptimePrint("uloc_getLanguage_{d}", .{icu_ver})
-    else
-        "uloc_getLanguage";
-    break :blk @extern(*const @TypeOf(c.uloc_getLanguage), .{ .name = name });
-};
-
-pub const uloc_getAvailable = blk: {
-    const name = if (icu_ver > 0)
-        std.fmt.comptimePrint("uloc_getAvailable_{d}", .{icu_ver})
-    else
-        "uloc_getAvailable";
-    break :blk @extern(*const @TypeOf(c.uloc_getAvailable), .{ .name = name });
-};
-
-pub const uloc_countAvailable = blk: {
-    const name = if (icu_ver > 0)
-        std.fmt.comptimePrint("uloc_countAvailable_{d}", .{icu_ver})
-    else
-        "uloc_countAvailable";
-    break :blk @extern(*const @TypeOf(c.uloc_countAvailable), .{ .name = name });
-};
+pub const u_strToUTF8WithSub = @extern(*const @TypeOf(c.u_strToUTF8WithSub), .{ .name = icuName("u_strToUTF8WithSub") });
+pub const u_strToUTF8 = @extern(*const @TypeOf(c.u_strToUTF8), .{ .name = icuName("u_strToUTF8") });
+pub const utrans_openU = @extern(*const @TypeOf(c.utrans_openU), .{ .name = icuName("utrans_openU") });
+pub const utrans_close = @extern(*const @TypeOf(c.utrans_close), .{ .name = icuName("utrans_close") });
+pub const utrans_clone = @extern(*const @TypeOf(c.utrans_clone), .{ .name = icuName("utrans_clone") });
+pub const utrans_transUChars = @extern(*const @TypeOf(c.utrans_transUChars), .{ .name = icuName("utrans_transUChars") });
+pub const uloc_getLanguage = @extern(*const @TypeOf(c.uloc_getLanguage), .{ .name = icuName("uloc_getLanguage") });
+pub const uloc_getAvailable = @extern(*const @TypeOf(c.uloc_getAvailable), .{ .name = icuName("uloc_getAvailable") });
+pub const uloc_countAvailable = @extern(*const @TypeOf(c.uloc_countAvailable), .{ .name = icuName("uloc_countAvailable") });

@@ -127,6 +127,10 @@ const max_translit_retries: u32 = 8;
 
 pub fn transliterateString(allocator: std.mem.Allocator, input: []const u8, rule_str: []const u8) ![]u8 {
     if (input.len > max_text_len) return error.TextTooLarge;
+    // Bug #34: sniff each rule feature once instead of rescanning per branch.
+    const wants_russian_bgn = std.mem.indexOf(u8, rule_str, "Russian-Latin/BGN") != null;
+    const wants_ar_he_latin = std.mem.indexOf(u8, rule_str, "Arabic-Latin") != null or
+        std.mem.indexOf(u8, rule_str, "Hebrew-Latin") != null;
     var status: c.UErrorCode = c.U_ZERO_ERROR;
 
     const rules_u16 = try utf8ToUtf16Alloc(allocator, rule_str);
@@ -146,7 +150,7 @@ pub fn transliterateString(allocator: std.mem.Allocator, input: []const u8, rule
     defer allocator.free(output_u16);
 
     @memcpy(output_u16[0..input_u16.len], input_u16);
-    if (std.mem.indexOf(u8, rule_str, "Russian-Latin/BGN") != null) {
+    if (wants_russian_bgn) {
         premapRussianYat(output_u16[0..input_u16.len]);
     }
 
@@ -170,7 +174,7 @@ pub fn transliterateString(allocator: std.mem.Allocator, input: []const u8, rule
         allocator.free(output_u16);
         output_u16 = new_u16;
         @memcpy(output_u16[0..input_u16.len], input_u16);
-        if (std.mem.indexOf(u8, rule_str, "Russian-Latin/BGN") != null) {
+        if (wants_russian_bgn) {
             premapRussianYat(output_u16[0..input_u16.len]);
         }
         out_len = @intCast(input_u16.len);
@@ -199,7 +203,6 @@ pub fn transliterateString(allocator: std.mem.Allocator, input: []const u8, rule
     // `utf8_len`-byte buffer with `destCapacity = utf8_len + 1`, a 1-byte heap
     // overflow (the NUL was written one byte past the allocation, CWE-787).
     const buf_with_nul = try allocator.alloc(u8, @as(usize, @intCast(utf8_len)) + 1);
-    defer allocator.free(buf_with_nul);
 
     _ = icu.u_strToUTF8(buf_with_nul.ptr, utf8_len + 1, null, output_u16.ptr, limit, &status);
     if (c.U_FAILURE(status)) {
@@ -208,14 +211,28 @@ pub fn transliterateString(allocator: std.mem.Allocator, input: []const u8, rule
 
     // Bug #18: strip Arabic-Latin/Hebrew-Latin modifier letters (U+02BF/
     // U+02BB/U+2019) so the returned string is pure ASCII.
-    const ar_he_latin = std.mem.indexOf(u8, rule_str, "Arabic-Latin") != null or
-        std.mem.indexOf(u8, rule_str, "Hebrew-Latin") != null;
-    const final_len: i32 = if (ar_he_latin)
+    const final_len: i32 = if (wants_ar_he_latin)
         stripTranslitMarks(buf_with_nul[0..@as(usize, @intCast(utf8_len))])
     else
         @intCast(utf8_len);
 
-    return allocator.dupe(u8, buf_with_nul[0..@as(usize, @intCast(final_len))]);
+    // Bug #34: return the (shrunk) conversion buffer directly instead of
+    // copying it once more with dupe. Shrinking realloc cannot
+    // meaningfully fail, but the fallback keeps ownership airtight.
+    const final_len_usize: usize = @intCast(final_len);
+    if (final_len_usize == 0) {
+        allocator.free(buf_with_nul);
+        return allocator.dupe(u8, "");
+    }
+    const shrunk = allocator.realloc(buf_with_nul, final_len_usize) catch {
+        const out = allocator.dupe(u8, buf_with_nul[0..final_len_usize]) catch |err| {
+            allocator.free(buf_with_nul);
+            return err;
+        };
+        allocator.free(buf_with_nul);
+        return out;
+    };
+    return shrunk;
 }
 
 // Build the UTF-8 byte-offset map (utf16 index -> utf8 start byte) for `text`.
@@ -438,9 +455,11 @@ pub fn tokenizeText(
         (if (l.len > 0) l else tokenizer.locale_slice)
     else
         tokenizer.locale_slice;
-    const uses_russian_bgn = std.mem.indexOf(u8, rules.getRulesForLocale(effective_locale), "Russian-Latin/BGN") != null;
-    const uses_ar_he_latin = std.mem.indexOf(u8, rules.getRulesForLocale(effective_locale), "Arabic-Latin") != null or
-        std.mem.indexOf(u8, rules.getRulesForLocale(effective_locale), "Hebrew-Latin") != null;
+    // Bug #34: one locale lookup; the rule feature flags come precomputed
+    // from getLocaleInfo instead of rescanning the rule text per flag.
+    const locale_info = rules.getLocaleInfo(effective_locale);
+    const uses_russian_bgn = locale_info.uses_russian_bgn;
+    const uses_ar_he_latin = locale_info.uses_ar_he_latin;
 
     var baseBreakIterator = tokenizer.pBreakIterator.?;
     var pTransliterator = tokenizer.pTransliterator.?;

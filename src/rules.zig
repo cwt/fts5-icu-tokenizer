@@ -2,10 +2,12 @@ const std = @import("std");
 
 pub const ICU_RULE_BASE = "NFKD; ";
 pub const ICU_RULE_LATIN_NORMALIZE = "Latin-ASCII; Lower; ";
+// Bug #34: TH and KO share the identical chain; one definition, two names.
+const ICU_RULE_SIMPLE_LOWER = ICU_RULE_BASE ++ "Lower; NFKC";
 pub const ICU_RULE_JA = ICU_RULE_BASE ++ "Hiragana-Katakana; Lower; NFKC";
 pub const ICU_RULE_ZH = ICU_RULE_BASE ++ "Traditional-Simplified; Lower; NFKC";
-pub const ICU_RULE_TH = ICU_RULE_BASE ++ "Lower; NFKC";
-pub const ICU_RULE_KO = ICU_RULE_BASE ++ "Lower; NFKC";
+pub const ICU_RULE_TH = ICU_RULE_SIMPLE_LOWER;
+pub const ICU_RULE_KO = ICU_RULE_SIMPLE_LOWER;
 pub const ICU_RULE_AR = ICU_RULE_BASE ++ "Arabic-Latin; " ++ ICU_RULE_LATIN_NORMALIZE ++ "NFKC";
 pub const ICU_RULE_RU = ICU_RULE_BASE ++ "Russian-Latin/BGN; " ++ ICU_RULE_LATIN_NORMALIZE ++ "NFKC";
 pub const ICU_RULE_HE = ICU_RULE_BASE ++ "Hebrew-Latin; " ++ ICU_RULE_LATIN_NORMALIZE ++ "NFKC";
@@ -21,7 +23,21 @@ pub const ICU_RULE_DEFAULT = ICU_RULE_BASE ++ "Arabic-Latin; Russian-Latin/BGN; 
 pub const LocaleInfo = struct {
     rules: []const u8,
     tokenizer_name: []const u8,
+    // Bug #34: rule features sniffed once here instead of rescanning rule
+    // text at every use site in tokenizer.zig.
+    uses_russian_bgn: bool,
+    uses_ar_he_latin: bool,
 };
+
+fn infoFor(rule_set: []const u8, name: []const u8) LocaleInfo {
+    return .{
+        .rules = rule_set,
+        .tokenizer_name = name,
+        .uses_russian_bgn = std.mem.indexOf(u8, rule_set, "Russian-Latin/BGN") != null,
+        .uses_ar_he_latin = std.mem.indexOf(u8, rule_set, "Arabic-Latin") != null or
+            std.mem.indexOf(u8, rule_set, "Hebrew-Latin") != null,
+    };
+}
 
 // Case-insensitive equality for a language subtag.
 fn langEql(a: []const u8, b: []const u8) bool {
@@ -36,16 +52,16 @@ pub fn getLocaleInfo(locale: []const u8) LocaleInfo {
         // accepts that spelling) and unanchored ("kok"/Konkani matched ko,
         // "arn"/Mapudungun matched ar, "jam"/Jamaican Creole matched ja).
         const lang = locale[0 .. std.mem.indexOfAny(u8, locale, "-_@") orelse locale.len];
-        if (langEql(lang, "ja") or langEql(lang, "jp")) return .{ .rules = ICU_RULE_JA, .tokenizer_name = "icu_ja" };
-        if (langEql(lang, "zh") or langEql(lang, "cn")) return .{ .rules = ICU_RULE_ZH, .tokenizer_name = "icu_zh" };
-        if (langEql(lang, "th")) return .{ .rules = ICU_RULE_TH, .tokenizer_name = "icu_th" };
-        if (langEql(lang, "ko") or langEql(lang, "kr")) return .{ .rules = ICU_RULE_KO, .tokenizer_name = "icu_ko" };
-        if (langEql(lang, "ar")) return .{ .rules = ICU_RULE_AR, .tokenizer_name = "icu_ar" };
-        if (langEql(lang, "ru")) return .{ .rules = ICU_RULE_RU, .tokenizer_name = "icu_ru" };
-        if (langEql(lang, "he") or langEql(lang, "iw")) return .{ .rules = ICU_RULE_HE, .tokenizer_name = "icu_he" };
-        if (langEql(lang, "el") or langEql(lang, "gr")) return .{ .rules = ICU_RULE_EL, .tokenizer_name = "icu_el" };
+        if (langEql(lang, "ja") or langEql(lang, "jp")) return infoFor(ICU_RULE_JA, "icu_ja");
+        if (langEql(lang, "zh") or langEql(lang, "cn")) return infoFor(ICU_RULE_ZH, "icu_zh");
+        if (langEql(lang, "th")) return infoFor(ICU_RULE_TH, "icu_th");
+        if (langEql(lang, "ko") or langEql(lang, "kr")) return infoFor(ICU_RULE_KO, "icu_ko");
+        if (langEql(lang, "ar")) return infoFor(ICU_RULE_AR, "icu_ar");
+        if (langEql(lang, "ru")) return infoFor(ICU_RULE_RU, "icu_ru");
+        if (langEql(lang, "he") or langEql(lang, "iw")) return infoFor(ICU_RULE_HE, "icu_he");
+        if (langEql(lang, "el") or langEql(lang, "gr")) return infoFor(ICU_RULE_EL, "icu_el");
     }
-    return .{ .rules = ICU_RULE_DEFAULT, .tokenizer_name = "icu" };
+    return infoFor(ICU_RULE_DEFAULT, "icu");
 }
 
 pub fn getRulesForLocale(locale: []const u8) []const u8 {
@@ -96,6 +112,27 @@ test "rules mapping is case-insensitive and subtag-anchored (bug #21)" {
     try std.testing.expectEqualStrings(ICU_RULE_DEFAULT, getRulesForLocale("arn")); // Mapudungun, not ar
     try std.testing.expectEqualStrings(ICU_RULE_DEFAULT, getRulesForLocale("jam")); // Jamaican Creole, not ja
     try std.testing.expectEqualStrings("icu", getTokenizerNameForLocale("kok"));
+}
+
+// Bug #34: feature flags are computed once per locale lookup; this test
+// pins them so a future rule edit that drops a leg fails loudly here.
+test "locale info precomputes rule feature flags (bug #34)" {
+    const ru = getLocaleInfo("ru");
+    try std.testing.expect(ru.uses_russian_bgn);
+    try std.testing.expect(!ru.uses_ar_he_latin);
+
+    const ar = getLocaleInfo("ar");
+    try std.testing.expect(ar.uses_ar_he_latin);
+    try std.testing.expect(!ar.uses_russian_bgn);
+
+    const he = getLocaleInfo("he");
+    try std.testing.expect(he.uses_ar_he_latin);
+
+    const ja = getLocaleInfo("ja");
+    try std.testing.expect(!ja.uses_russian_bgn and !ja.uses_ar_he_latin);
+
+    const uni = getLocaleInfo("");
+    try std.testing.expect(uni.uses_russian_bgn and uni.uses_ar_he_latin);
 }
 
 // Bug #14: Cyrillic-Latin (any variant, and the diacritic-strip post-filter)

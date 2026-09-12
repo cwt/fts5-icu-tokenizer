@@ -97,17 +97,17 @@ fn icuDelete(pTok: ?*Fts5Tokenizer) callconv(.c) void {
     }
 }
 
-// FTS5 v2 callback: xTokenize
-fn icuTokenizeV2(
+// Bug #34: shared xTokenize core for the v1 and v2 callbacks, which differ
+// only in where the override locale comes from.
+fn icuTokenizeInner(
     pTok: ?*Fts5Tokenizer,
     pCtx: ?*anyopaque,
     flags: c_int,
     pText: [*c]const u8,
     nText: c_int,
-    pLocale: [*c]const u8,
-    nLocale: c_int,
+    override_locale: ?[]const u8,
     xToken: ?*const fn (?*anyopaque, c_int, [*c]const u8, c_int, c_int, c_int) callconv(.c) c_int,
-) callconv(.c) c_int {
+) c_int {
     _ = flags;
     if (pTok == null or pText == null or nText <= 0 or xToken == null) {
         return c.SQLITE_OK;
@@ -115,11 +115,6 @@ fn icuTokenizeV2(
 
     const tok: *tokenizer.IcuTokenizer = @ptrCast(@alignCast(pTok));
     const text = pText[0..@intCast(nText)];
-
-    var override_locale: ?[]const u8 = null;
-    if (pLocale != null and nLocale > 0) {
-        override_locale = pLocale[0..@intCast(nLocale)];
-    }
 
     return tokenizer.tokenizeText(
         std.heap.c_allocator,
@@ -131,6 +126,25 @@ fn icuTokenizeV2(
     ) catch c.SQLITE_ERROR;
 }
 
+// FTS5 v2 callback: xTokenize
+fn icuTokenizeV2(
+    pTok: ?*Fts5Tokenizer,
+    pCtx: ?*anyopaque,
+    flags: c_int,
+    pText: [*c]const u8,
+    nText: c_int,
+    pLocale: [*c]const u8,
+    nLocale: c_int,
+    xToken: ?*const fn (?*anyopaque, c_int, [*c]const u8, c_int, c_int, c_int) callconv(.c) c_int,
+) callconv(.c) c_int {
+    var override_locale: ?[]const u8 = null;
+    if (pLocale != null and nLocale > 0) {
+        override_locale = pLocale[0..@intCast(nLocale)];
+    }
+
+    return icuTokenizeInner(pTok, pCtx, flags, pText, nText, override_locale, xToken);
+}
+
 // FTS5 v1 (legacy) callback: xTokenize
 fn icuTokenizeV1(
     pTok: ?*Fts5Tokenizer,
@@ -140,22 +154,7 @@ fn icuTokenizeV1(
     nText: c_int,
     xToken: ?*const fn (?*anyopaque, c_int, [*c]const u8, c_int, c_int, c_int) callconv(.c) c_int,
 ) callconv(.c) c_int {
-    _ = flags;
-    if (pTok == null or pText == null or nText <= 0 or xToken == null) {
-        return c.SQLITE_OK;
-    }
-
-    const tok: *tokenizer.IcuTokenizer = @ptrCast(@alignCast(pTok));
-    const text = pText[0..@intCast(nText)];
-
-    return tokenizer.tokenizeText(
-        std.heap.c_allocator,
-        tok,
-        text,
-        null,
-        pCtx,
-        xToken.?,
-    ) catch c.SQLITE_ERROR;
+    return icuTokenizeInner(pTok, pCtx, flags, pText, nText, null, xToken);
 }
 
 fn getFts5Api(db: *c.sqlite3, pApi: *const c.sqlite3_api_routines) ?*fts5_api {

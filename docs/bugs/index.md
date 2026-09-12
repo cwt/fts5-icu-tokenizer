@@ -16,7 +16,8 @@ Source-level audit findings for the FTS5 ICU tokenizer (Zig 0.16.0). Bugs
 #1–#25 were filed across three passes and are all fixed and committed
 separately, each with a dedicated regression test (`zig build test`).
 Bugs #26–#35 were filed by a follow-up deep audit (memory safety, wrong
-logic, unoptimized algorithms, duplication) and are **open**.
+logic, unoptimized algorithms, duplication) and are now all fixed the
+same way.
 
 - [Ruled out (not bugs)](ruled-out.md)
 - [Verification history](verification.md)
@@ -39,7 +40,7 @@ logic, unoptimized algorithms, duplication) and are **open**.
 | Second audit (2026) | #8–#13 | All FIXED |
 | Second pass, probe-driven (ICU 78 + 67.1.0) | #14–#18 | All FIXED |
 | Third pass, probe-driven (ICU 78) | #19–#25 | All FIXED |
-| Follow-up deep audit (2026-09-12) | #26–#35 | Open |
+| Follow-up deep audit (2026-09-12) | #26–#35 | All FIXED |
 
 | Severity | Count |
 |---|---:|

@@ -7,10 +7,44 @@ const rules = @import("rules.zig");
 // resolver it gates.
 const has_ubrk_clone = icu.has_ubrk_clone;
 
+// Bug #26: the FTS5 C-callback chain cannot provide the `io` handle that
+// `std.Io.Mutex` requires (and `std.Thread.Mutex` no longer exists in
+// 0.16), so the override cache is guarded by this small spin-yield mutex
+// built directly on atomics. Critical sections are short (a string compare
+// plus clones on hits); only a differing-locale miss holds it across ICU
+// opens, which is rare and still correct under contention.
+const CacheMutex = struct {
+    state: std.atomic.Value(u8) = std.atomic.Value(u8).init(0),
+
+    fn lock(m: *CacheMutex) !void {
+        var spins: usize = 0;
+        while (m.state.cmpxchgStrong(0, 1, .acquire, .monotonic) != null) {
+            if (spins < 1000) {
+                std.atomic.spinLoopHint();
+                spins += 1;
+            } else {
+                try std.Thread.yield();
+            }
+        }
+    }
+
+    fn unlock(m: *CacheMutex) void {
+        m.state.store(0, .release);
+    }
+};
+
 pub const IcuTokenizer = struct {
     pBreakIterator: ?*c.UBreakIterator,
     pTransliterator: ?*c.UTransliterator,
     locale_slice: []const u8,
+    /// Allocator that owns the override-cache entries. Fixed at create:
+    /// tokenizeText may be called with a different scratch allocator, which
+    /// must never free cache memory.
+    allocator: std.mem.Allocator,
+    cache_mutex: CacheMutex = .{},
+    cached_locale: ?[]u8 = null,
+    cached_break: ?*c.UBreakIterator = null,
+    cached_trans: ?*c.UTransliterator = null,
 
     pub fn create(allocator: std.mem.Allocator, locale: []const u8) !*IcuTokenizer {
         var status: c.UErrorCode = c.U_ZERO_ERROR;
@@ -21,6 +55,7 @@ pub const IcuTokenizer = struct {
             .pBreakIterator = null,
             .pTransliterator = null,
             .locale_slice = try allocator.dupe(u8, locale),
+            .allocator = allocator,
         };
         errdefer allocator.free(tok.locale_slice);
 
@@ -58,6 +93,12 @@ pub const IcuTokenizer = struct {
     pub fn destroy(self: *IcuTokenizer, allocator: std.mem.Allocator) void {
         if (self.pBreakIterator) |bi| icu.ubrk_close(bi);
         if (self.pTransliterator) |tr| icu.utrans_close(tr);
+        // No lock: destroy has exclusive access by contract (FTS5 calls
+        // xDelete after the last xTokenize). Cache entries were allocated
+        // with the stored create-time allocator.
+        if (self.cached_break) |b| icu.ubrk_close(b);
+        if (self.cached_trans) |t| icu.utrans_close(t);
+        if (self.cached_locale) |cl| self.allocator.free(cl);
         allocator.free(self.locale_slice);
         allocator.destroy(self);
     }
@@ -381,41 +422,81 @@ pub fn tokenizeText(
     var baseBreakIterator = tokenizer.pBreakIterator.?;
     var pTransliterator = tokenizer.pTransliterator.?;
 
-    var dynBreak: ?*c.UBreakIterator = null;
-    var dynTrans: ?*c.UTransliterator = null;
-    defer {
-        if (dynBreak) |b| icu.ubrk_close(b);
-        if (dynTrans) |t| icu.utrans_close(t);
-    }
+    // Bug #26: single-entry per-locale cache for query-time overrides. The
+    // fast path (empty override, or one equal to the tokenizer's own locale)
+    // uses the base handles with no locking. A differing override takes the
+    // cache lock: hits borrow the cached handles, misses validate + open
+    // fresh (existing code) and install. Borrowing and the per-call clones
+    // below all happen under the lock so a concurrent evict cannot
+    // close handles out from under a clone; the explicit unlock runs once
+    // both clones are owned per-call. The errdefer covers Zig-error paths
+    // (e.g. OOM inside the no-clone fallback); normal-error returns unlock
+    // explicitly since errdefer does not run for those.
+    var cache_locked = false;
+    errdefer if (cache_locked) tokenizer.cache_mutex.unlock();
 
     if (override_locale) |loc| {
-        if (loc.len > 0) {
-            var status: c.UErrorCode = c.U_ZERO_ERROR;
-            const loc_c = try allocator.dupeZ(u8, loc);
-            defer allocator.free(loc_c);
+        if (loc.len > 0 and !std.mem.eql(u8, loc, tokenizer.locale_slice)) {
+            try tokenizer.cache_mutex.lock();
+            cache_locked = true;
 
-            // Bug #20: per-call overrides reach ubrk_open/utrans_openU at
-            // query time and must pass the same isValidLocaleLanguage gate
-            // as IcuTokenizer.create (bug #16); otherwise a typo'd row/query
-            // locale silently tokenizes with the wrong rules while the same
-            // string fails loudly at CREATE TABLE time.
-            if (!isValidLocaleLanguage(loc_c.ptr)) return c.SQLITE_ERROR;
+            const hit = if (tokenizer.cached_locale) |cl| std.mem.eql(u8, cl, loc) else false;
+            if (hit) {
+                baseBreakIterator = tokenizer.cached_break.?;
+                pTransliterator = tokenizer.cached_trans.?;
+            } else {
+                var status: c.UErrorCode = c.U_ZERO_ERROR;
+                const loc_c = try allocator.dupeZ(u8, loc);
+                defer allocator.free(loc_c);
 
-            const dyn_rules = rules.getRulesForLocale(loc);
-            const dyn_rules_u16 = try utf8ToUtf16Alloc(allocator, dyn_rules);
-            defer allocator.free(dyn_rules_u16);
+                // Bug #20: per-call overrides reach ubrk_open/utrans_openU at
+                // query time and must pass the same isValidLocaleLanguage gate
+                // as IcuTokenizer.create (bug #16); otherwise a typo'd row/query
+                // locale silently tokenizes with the wrong rules while the same
+                // string fails loudly at CREATE TABLE time.
+                if (!isValidLocaleLanguage(loc_c.ptr)) {
+                    tokenizer.cache_mutex.unlock();
+                    cache_locked = false;
+                    return c.SQLITE_ERROR;
+                }
 
-            dynBreak = icu.ubrk_open(c.UBRK_WORD, loc_c.ptr, null, 0, &status);
-            if (c.U_FAILURE(status) or dynBreak == null) {
-                return c.SQLITE_ERROR;
+                const dyn_rules = rules.getRulesForLocale(loc);
+                const dyn_rules_u16 = try utf8ToUtf16Alloc(allocator, dyn_rules);
+                defer allocator.free(dyn_rules_u16);
+
+                const fresh_break = icu.ubrk_open(c.UBRK_WORD, loc_c.ptr, null, 0, &status);
+                if (c.U_FAILURE(status) or fresh_break == null) {
+                    tokenizer.cache_mutex.unlock();
+                    cache_locked = false;
+                    return c.SQLITE_ERROR;
+                }
+                status = c.U_ZERO_ERROR;
+                const fresh_trans = icu.utrans_openU(dyn_rules_u16.ptr, -1, c.UTRANS_FORWARD, null, 0, null, &status);
+                if (c.U_FAILURE(status) or fresh_trans == null) {
+                    icu.ubrk_close(fresh_break.?);
+                    tokenizer.cache_mutex.unlock();
+                    cache_locked = false;
+                    return c.SQLITE_ERROR;
+                }
+
+                // Install: dupe the locale first so OOM leaves the previous
+                // entry intact instead of evicting-then-failing.
+                const owned = tokenizer.allocator.dupe(u8, loc) catch {
+                    icu.ubrk_close(fresh_break.?);
+                    icu.utrans_close(fresh_trans.?);
+                    tokenizer.cache_mutex.unlock();
+                    cache_locked = false;
+                    return c.SQLITE_NOMEM;
+                };
+                if (tokenizer.cached_break) |b| icu.ubrk_close(b);
+                if (tokenizer.cached_trans) |t| icu.utrans_close(t);
+                if (tokenizer.cached_locale) |cl| tokenizer.allocator.free(cl);
+                tokenizer.cached_locale = owned;
+                tokenizer.cached_break = fresh_break;
+                tokenizer.cached_trans = fresh_trans;
+                baseBreakIterator = fresh_break.?;
+                pTransliterator = fresh_trans.?;
             }
-            status = c.U_ZERO_ERROR;
-            dynTrans = icu.utrans_openU(dyn_rules_u16.ptr, -1, c.UTRANS_FORWARD, null, 0, null, &status);
-            if (c.U_FAILURE(status) or dynTrans == null) {
-                return c.SQLITE_ERROR;
-            }
-            baseBreakIterator = dynBreak.?;
-            pTransliterator = dynTrans.?;
         }
     }
 
@@ -431,14 +512,34 @@ pub fn tokenizeText(
         defer allocator.free(locale_z);
         break :blk icu.ubrk_open(c.UBRK_WORD, locale_z.ptr, null, 0, &clone_status);
     };
-    if (c.U_FAILURE(clone_status) or pBreakIterator == null) return c.SQLITE_ERROR;
+    if (c.U_FAILURE(clone_status) or pBreakIterator == null) {
+        if (cache_locked) {
+            tokenizer.cache_mutex.unlock();
+            cache_locked = false;
+        }
+        return c.SQLITE_ERROR;
+    }
     defer icu.ubrk_close(pBreakIterator);
 
     // Clone transliterator for thread safety
     var trans_clone_status: c.UErrorCode = c.U_ZERO_ERROR;
     const pClonedTransliterator = icu.utrans_clone(pTransliterator, &trans_clone_status);
-    if (c.U_FAILURE(trans_clone_status) or pClonedTransliterator == null) return c.SQLITE_ERROR;
+    if (c.U_FAILURE(trans_clone_status) or pClonedTransliterator == null) {
+        if (cache_locked) {
+            tokenizer.cache_mutex.unlock();
+            cache_locked = false;
+        }
+        return c.SQLITE_ERROR;
+    }
     defer icu.utrans_close(pClonedTransliterator);
+
+    // Both clones are now owned per-call; the borrowed cache handles are no
+    // longer needed, so release the lock before the (potentially long) token
+    // loop. xToken callbacks run unlocked, so re-entrant use cannot deadlock.
+    if (cache_locked) {
+        tokenizer.cache_mutex.unlock();
+        cache_locked = false;
+    }
 
     // Pre-transliteration: normalize the entire input before word breaking.
     // This prevents UBRK_WORD from fragmenting tokens when transliteration
@@ -1181,6 +1282,114 @@ test "tokenizeText rejects invalid query-time override locale (bug #20)" {
     try std.testing.expectEqual(@as(c_int, c.SQLITE_OK), rc_good);
     const rc_empty = try tokenizeText(gpa, tok, "hello world", "", null, dummyTokenCallback);
     try std.testing.expectEqual(@as(c_int, c.SQLITE_OK), rc_empty);
+}
+
+fn expectRangesEqual(a: []const TokenRange, b: []const TokenRange) !void {
+    try std.testing.expectEqual(a.len, b.len);
+    for (a, b) |x, y| {
+        try std.testing.expectEqualStrings(x.text, y.text);
+        try std.testing.expectEqual(x.i_start, y.i_start);
+        try std.testing.expectEqual(x.i_end, y.i_end);
+    }
+}
+
+fn expectOverrideMatches(
+    gpa: std.mem.Allocator,
+    tok: *IcuTokenizer,
+    text: []const u8,
+    override: ?[]const u8,
+    expected: []const TokenRange,
+) !void {
+    var cap: CaptureWithRange = .{ .gpa = gpa, .tokens = .empty };
+    defer {
+        for (cap.tokens.items) |t| gpa.free(t.text);
+        cap.tokens.deinit(gpa);
+    }
+    const rc = try tokenizeText(gpa, tok, text, override, &cap, captureRangeCallback);
+    try std.testing.expectEqual(@as(c_int, c.SQLITE_OK), rc);
+    try expectRangesEqual(expected, cap.tokens.items);
+}
+
+// Bug #26: the single-entry override cache must return byte-identical
+// results on miss, hit, eviction, and re-install, and an override equal to
+// the tokenizer's own locale must behave exactly like no override.
+test "override cache is correct across locales (bug #26)" {
+    const gpa = std.testing.allocator;
+
+    const tok = try IcuTokenizer.create(gpa, "");
+    defer tok.destroy(gpa);
+
+    const text = "русский текст and english";
+
+    var first: CaptureWithRange = .{ .gpa = gpa, .tokens = .empty };
+    defer {
+        for (first.tokens.items) |t| gpa.free(t.text);
+        first.tokens.deinit(gpa);
+    }
+    const rc = try tokenizeText(gpa, tok, text, "ru", &first, captureRangeCallback);
+    try std.testing.expectEqual(@as(c_int, c.SQLITE_OK), rc);
+    try std.testing.expect(first.tokens.items.len > 0);
+
+    // Cache hit: identical tokens and byte ranges.
+    try expectOverrideMatches(gpa, tok, text, "ru", first.tokens.items);
+    // Evict with another locale (must succeed and produce tokens), then
+    // re-install the first locale: identical to the original miss.
+    var evicted: CaptureWithRange = .{ .gpa = gpa, .tokens = .empty };
+    defer {
+        for (evicted.tokens.items) |t| gpa.free(t.text);
+        evicted.tokens.deinit(gpa);
+    }
+    const rc_evict = try tokenizeText(gpa, tok, text, "ja", &evicted, captureRangeCallback);
+    try std.testing.expectEqual(@as(c_int, c.SQLITE_OK), rc_evict);
+    try std.testing.expect(evicted.tokens.items.len > 0);
+    try expectOverrideMatches(gpa, tok, text, "ru", first.tokens.items);
+
+    // Fast path: override equal to the tokenizer's own locale == no override.
+    const tok_ru = try IcuTokenizer.create(gpa, "ru");
+    defer tok_ru.destroy(gpa);
+    var baseline: CaptureWithRange = .{ .gpa = gpa, .tokens = .empty };
+    defer {
+        for (baseline.tokens.items) |t| gpa.free(t.text);
+        baseline.tokens.deinit(gpa);
+    }
+    const rc2 = try tokenizeText(gpa, tok_ru, text, null, &baseline, captureRangeCallback);
+    try std.testing.expectEqual(@as(c_int, c.SQLITE_OK), rc2);
+    try expectOverrideMatches(gpa, tok_ru, text, "ru", baseline.tokens.items);
+}
+
+// Bug #26: mixed overrides from multiple threads share one cache entry;
+// the lock must keep borrowed handles alive across borrow+clone.
+test "concurrent tokenizeText with mixed overrides (bug #26)" {
+    const gpa = std.testing.allocator;
+
+    const tok = try IcuTokenizer.create(gpa, "");
+    defer tok.destroy(gpa);
+
+    var thread_errors: std.atomic.Value(usize) = .init(0);
+    const ThreadContext = struct {
+        tokenizer: *IcuTokenizer,
+        errors: *std.atomic.Value(usize),
+        idx: usize,
+        fn worker(self: @This()) void {
+            const locales = [_]?[]const u8{ "ru", "ja", null, "ru" };
+            const loc = locales[self.idx % locales.len];
+            const rc = tokenizeText(std.heap.c_allocator, self.tokenizer, "русский текст 日本語テスト", loc, null, dummyTokenCallback) catch c.SQLITE_ERROR;
+            if (rc != c.SQLITE_OK) {
+                _ = self.errors.fetchAdd(1, .monotonic);
+            }
+        }
+    };
+
+    var threads: [8]std.Thread = undefined;
+    for (&threads, 0..) |*t, i| {
+        t.* = try std.Thread.spawn(.{}, ThreadContext.worker, .{ThreadContext{
+            .tokenizer = tok,
+            .errors = &thread_errors,
+            .idx = i,
+        }});
+    }
+    for (threads) |t| t.join();
+    try std.testing.expectEqual(@as(usize, 0), thread_errors.load(.monotonic));
 }
 
 // Bug #16 (positive side): the rules.zig aliases (jp/cn/kr) are not ICU

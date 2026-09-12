@@ -77,7 +77,7 @@ logic, unoptimized algorithms, duplication) and are **open**.
 | [23](023.md) | Dead build_options import in tokenizer.zig | LOW | Fixed |
 | [24](024.md) | build.zig duplicate artifacts with -Dlocale | LOW | Fixed |
 | [25](025.md) | Unit tests ran under ReleaseFast | LOW | Fixed |
-| [26](026.md) | Per-row full ICU open on the query-time override path | MEDIUM | Open |
+| [26](026.md) | Per-row full ICU open on the query-time override path | MEDIUM | Fixed |
 | [27](027.md) | Unchecked @intCast on untrusted FTS5 text lengths | MEDIUM | Open |
 | [28](028.md) | ICU_RULE_DEFAULT pipeline order diverges from JA/ZH | LOW | Open |
 | [29](029.md) | Single-retry overflow handling; silent drop on second overflow | LOW | Open |

@@ -348,7 +348,11 @@ fn isValidLocaleLanguage(locale_c: [*:0]const u8) bool {
     if (locale.len == 0) return true;
     if (std.mem.eql(u8, locale, "C") or std.mem.eql(u8, locale, "POSIX")) return true;
 
-    var lang_buf: [16]u8 = undefined;
+    // Bug #35: sized for the BCP47 maximum (primary subtags run 2-8
+    // characters) with wide headroom, so extra-long subtags get a real
+    // lookup instead of a blanket reject. Anything still over-long is
+    // rejected cleanly by the checks below, never truncated.
+    var lang_buf: [64]u8 = undefined;
     var st: c.UErrorCode = c.U_ZERO_ERROR;
     const n = icu.uloc_getLanguage(locale_c, &lang_buf, lang_buf.len, &st);
     if (c.U_FAILURE(st) or n < 0 or @as(usize, @intCast(n)) > lang_buf.len) return false;
@@ -1344,6 +1348,16 @@ test "create rejects unresolvable locale (bug #16)" {
     try std.testing.expectError(error.IcuInvalidLocale, IcuTokenizer.create(gpa, "xx"));
     try std.testing.expectError(error.IcuInvalidLocale, IcuTokenizer.create(gpa, "xx_YY"));
     try std.testing.expectError(error.IcuInvalidLocale, IcuTokenizer.create(gpa, "xyz"));
+}
+
+// Bug #35: an over-long language subtag is cleanly rejected (never
+// truncated, no panic); over-long but well-formed input reaches the real
+// lookup instead of tripping the scratch buffer size.
+test "create handles over-long language subtag gracefully (bug #35)" {
+    const gpa = std.testing.allocator;
+
+    try std.testing.expectError(error.IcuInvalidLocale, IcuTokenizer.create(gpa, "abcdefghijklmnopqrstuvwxy"));
+    try std.testing.expectError(error.IcuInvalidLocale, IcuTokenizer.create(gpa, "abcdefghijklmnopqrstuvwxy_ZZ"));
 }
 
 // Bug #20: per-call (query-time) locale overrides reach ubrk_open /

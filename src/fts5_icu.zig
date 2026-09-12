@@ -163,15 +163,23 @@ fn getFts5Api(db: *c.sqlite3, pApi: *const c.sqlite3_api_routines) ?*fts5_api {
     var pStmt: ?*c.sqlite3_stmt = null;
     if (pApi.prepare_v2) |prep_fn| {
         if (prep_fn(db, "SELECT fts5(?)", -1, &pStmt, null) == c.SQLITE_OK) {
+            // Bug #32: every step is checked — a failed bind or a step that
+            // yields no row must not leave a stale pointer behind as a
+            // trusted API.
+            var ok = false;
             if (pApi.bind_pointer) |bind_ptr| {
-                _ = bind_ptr(pStmt, 1, @ptrCast(&pFts5Api), "fts5_api_ptr", null);
-            }
-            if (pApi.step) |step_fn| {
-                _ = step_fn(pStmt);
+                if (bind_ptr(pStmt, 1, @ptrCast(&pFts5Api), "fts5_api_ptr", null) == c.SQLITE_OK) {
+                    if (pApi.step) |step_fn| {
+                        if (step_fn(pStmt) == c.SQLITE_ROW and pFts5Api != null) {
+                            ok = true;
+                        }
+                    }
+                }
             }
             if (pApi.finalize) |fin_fn| {
                 _ = fin_fn(pStmt);
             }
+            if (!ok) pFts5Api = null;
         }
     }
     return pFts5Api;

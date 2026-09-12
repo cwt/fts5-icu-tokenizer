@@ -16,6 +16,10 @@ timestamp: 2026-09-12T19:06:49Z
 Third-pass observations, kept alongside the [bug tracker](index.md) but
 not numbered as bugs.
 
+> Promotion note: the sed-pipe item below is now formally filed as
+> [Bug 33](033.md); the rule-sniffing and extra-copy items as
+> [Bug 34](034.md). This page is kept as the historical record.
+
 - Rule-string substring sniffing is duplicated and fragile:
   `"Russian-Latin/BGN"` probed 3× (`transliterateString` incl. its retry
   branch, plus `tokenizeText`) and Arabic/Hebrew probed 2×. Should be

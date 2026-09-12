@@ -1,7 +1,7 @@
 ---
 type: index
 title: "Bug Tracker — fts5-icu-tokenizer"
-description: "One file per bug (#1–#25, all fixed), plus ruled-out concerns, verification, and notes."
+description: "One file per bug (#1–#35; #1–#25 fixed, #26–#35 open), plus ruled-out concerns and verification."
 status: stable
 sources:
   - docs/bugs/
@@ -12,9 +12,11 @@ timestamp: 2026-09-12T19:06:49Z
 
 # Bugs — fts5-icu-tokenizer
 
-Source-level audit findings for the FTS5 ICU tokenizer (Zig 0.16.0), filed
-across three passes. Every entry is fixed and committed separately, each
-with a dedicated regression test (`zig build test`).
+Source-level audit findings for the FTS5 ICU tokenizer (Zig 0.16.0). Bugs
+#1–#25 were filed across three passes and are all fixed and committed
+separately, each with a dedicated regression test (`zig build test`).
+Bugs #26–#35 were filed by a follow-up deep audit (memory safety, wrong
+logic, unoptimized algorithms, duplication) and are **open**.
 
 - [Ruled out (not bugs)](ruled-out.md)
 - [Verification history](verification.md)
@@ -37,13 +39,14 @@ with a dedicated regression test (`zig build test`).
 | Second audit (2026) | #8–#13 | All FIXED |
 | Second pass, probe-driven (ICU 78 + 67.1.0) | #14–#18 | All FIXED |
 | Third pass, probe-driven (ICU 78) | #19–#25 | All FIXED |
+| Follow-up deep audit (2026-09-12) | #26–#35 | Open |
 
 | Severity | Count |
 |---|---:|
 | HIGH | 4 |
-| MEDIUM | 5 |
-| LOW | 16 |
-| **Total** | **25** |
+| MEDIUM | 7 |
+| LOW | 24 |
+| **Total** | **35** |
 
 ## All Bugs
 
@@ -74,3 +77,13 @@ with a dedicated regression test (`zig build test`).
 | [23](023.md) | Dead build_options import in tokenizer.zig | LOW | Fixed |
 | [24](024.md) | build.zig duplicate artifacts with -Dlocale | LOW | Fixed |
 | [25](025.md) | Unit tests ran under ReleaseFast | LOW | Fixed |
+| [26](026.md) | Per-row full ICU open on the query-time override path | MEDIUM | Open |
+| [27](027.md) | Unchecked @intCast on untrusted FTS5 text lengths | MEDIUM | Open |
+| [28](028.md) | ICU_RULE_DEFAULT pipeline order diverges from JA/ZH | LOW | Open |
+| [29](029.md) | Single-retry overflow handling; silent drop on second overflow | LOW | Open |
+| [30](030.md) | Missing null checks on FTS5/extension pointers | LOW | Open |
+| [31](031.md) | Position-map safety rests entirely on phantom math | LOW | Open |
+| [32](032.md) | getFts5Api ignores bind/step return codes | LOW | Open |
+| [33](033.md) | Test harness cannot fail | LOW | Open |
+| [34](034.md) | Unfactored duplication across tokenizer, resolvers, build | LOW | Open |
+| [35](035.md) | 16-byte language buffer rejects long language subtags | LOW | Open |

@@ -1,3 +1,16 @@
+---
+type: architecture_guideline
+title: "Project structure"
+description: "Directory layout, file roles, build/test usage, and supported locales."
+status: stable
+sources:
+  - docs/
+verified: human-reviewed
+tags: [structure, overview]
+timestamp: 2026-09-12T19:06:49Z
+stale_after: 2027-03-12T00:00:00Z
+---
+
 # FTS5 ICU Tokenizer - Project Structure
 
 This document explains the organization of the FTS5 ICU Tokenizer project.
@@ -20,10 +33,12 @@ fts5-icu-tokenizer/
 ## Directory Details
 
 ### `docs/`
-Documentation files:
-- `BUILD_TEST_README.md` - Instructions for building and testing all tokenizers
-- `FTS5_API_IMPLEMENTATION.md` - Complete documentation on the FTS5 v2 API implementation
-- `SCRIPTS_REFERENCE.md` - Reference guide for all scripts in the scripts directory
+Documentation files (see [docs/index.md](index.md)):
+- `build-test.md` - Instructions for building and testing all tokenizers
+- `fts5-api-implementation.md` - Complete documentation on the FTS5 v2 API implementation
+- `scripts-reference.md` - Reference guide for all scripts in the scripts directory
+- `project-structure.md` - This overview of the project layout
+- `bugs/` - Bug tracker, one file per bug plus verification history
 
 ### `scripts/`
 Utility scripts for building and testing:
@@ -72,4 +87,4 @@ sqlite3 < tests/test_zh_tokenizer.sql    # Chinese
 
 ## Supported Locales
 
-See `docs/BUILD_TEST_README.md` for a complete list of supported locales and their aliases.
+See [build-test.md](build-test.md) for a complete list of supported locales and their aliases.

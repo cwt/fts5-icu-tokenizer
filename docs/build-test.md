@@ -1,3 +1,17 @@
+---
+type: runbook
+title: "Build and test"
+description: "Supported locales, build/test scripts, aliases, entrypoint names, and code-quality scripts."
+status: stable
+sources:
+  - scripts/
+  - build.zig
+verified: human-reviewed
+tags: [build, test, locales, runbook]
+timestamp: 2026-09-12T19:06:49Z
+stale_after: 2027-03-12T00:00:00Z
+---
+
 # FTS5 ICU Tokenizer - Build and Test Scripts
 
 This directory contains scripts to build and test the FTS5 ICU tokenizer for all supported locales.
@@ -105,6 +119,6 @@ Performs static code analysis using cppcheck. Usage:
 ./scripts/lint-check.sh
 ```
 
-For more information about the FTS5 v2 API implementation, see [docs/FTS5_API_IMPLEMENTATION.md](docs/FTS5_API_IMPLEMENTATION.md).
+For more information about the FTS5 v2 API implementation, see [fts5-api-implementation.md](fts5-api-implementation.md).
 
-For a complete reference of all available scripts, see [docs/SCRIPTS_REFERENCE.md](docs/SCRIPTS_REFERENCE.md).
+For a complete reference of all available scripts, see [scripts-reference.md](scripts-reference.md).

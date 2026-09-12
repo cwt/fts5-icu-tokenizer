@@ -243,7 +243,7 @@ upgrading, using the same procedure shown above.
 ### Upgrading from v7.1.0
 
 Version 7.1.1 is a correctness-fix release (third audit pass, bugs #19–#25
-in `docs/BUGS.md`). Token forms are **unchanged for ordinary text**, so
+in `docs/bugs/`). Token forms are **unchanged for ordinary text**, so
 existing FTS5 indexes remain compatible — with one exception: documents
 containing Arabic honorific ligatures whose NFKD decomposition inserts
 whitespace (e.g. ﷺ U+FDFA) were tokenized with corrupted byte ranges and

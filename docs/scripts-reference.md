@@ -1,3 +1,16 @@
+---
+type: runbook
+title: "Scripts reference"
+description: "Every script in scripts/ and its usage: build, test, and code-quality helpers."
+status: stable
+sources:
+  - scripts/
+verified: human-reviewed
+tags: [scripts, reference, runbook]
+timestamp: 2026-09-12T19:06:49Z
+stale_after: 2027-03-12T00:00:00Z
+---
+
 # FTS5 ICU Tokenizer - Scripts Reference
 
 This document provides an overview of all the scripts in the `scripts/` directory and their usage.

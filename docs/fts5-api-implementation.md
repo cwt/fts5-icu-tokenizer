@@ -1,3 +1,17 @@
+---
+type: api_spec
+title: "FTS5 API implementation"
+description: "FTS5 v1/v2 structs, tokenizer callbacks, and extension registration in Zig 0.16.0."
+status: stable
+resource: src/fts5_icu.zig
+sources:
+  - src/fts5_icu.zig
+verified: human-reviewed
+tags: [fts5, sqlite, api, icu]
+timestamp: 2026-09-12T19:06:49Z
+stale_after: 2027-03-12T00:00:00Z
+---
+
 # FTS5 ICU Tokenizer for SQLite - FTS5 API Implementation (Zig 0.16.0)
 
 This project provides FTS5 tokenizer extensions for SQLite implemented in **Zig 0.16.0**. It supports both the primary **FTS5 v2 API** (`fts5_tokenizer_v2`) and the legacy **FTS5 v1 API** (`fts5_tokenizer`) using the International Components for Unicode (ICU) library.
@@ -19,7 +33,7 @@ The FTS5 v1 API (`fts5_tokenizer`) is maintained for compatibility with older SQ
 
 ---
 
-## Zig Struct Definitions ([src/fts5_icu.zig](file:///Users/cwt/Projects/fts5-icu-tokenizer/src/fts5_icu.zig))
+## Zig Struct Definitions ([src/fts5_icu.zig](../src/fts5_icu.zig))
 
 In Zig, the C FTS5 structures are represented using `extern struct`:
 

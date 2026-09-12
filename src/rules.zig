@@ -10,9 +10,13 @@ pub const ICU_RULE_AR = ICU_RULE_BASE ++ "Arabic-Latin; " ++ ICU_RULE_LATIN_NORM
 pub const ICU_RULE_RU = ICU_RULE_BASE ++ "Russian-Latin/BGN; " ++ ICU_RULE_LATIN_NORMALIZE ++ "NFKC";
 pub const ICU_RULE_HE = ICU_RULE_BASE ++ "Hebrew-Latin; " ++ ICU_RULE_LATIN_NORMALIZE ++ "NFKC";
 pub const ICU_RULE_EL = ICU_RULE_BASE ++ "Greek-Latin; " ++ ICU_RULE_LATIN_NORMALIZE ++ "NFKC";
+// Bug #28: conversions run before the final Lower; NFKC, mirroring
+// ICU_RULE_JA / ICU_RULE_ZH. The old order normalized first and converted
+// last, so conversion output never saw Lower/NFKC and the universal chain
+// disagreed with the locale chains on the same text.
 pub const ICU_RULE_DEFAULT = ICU_RULE_BASE ++ "Arabic-Latin; Russian-Latin/BGN; Hebrew-Latin; " ++
-    "Greek-Latin; " ++ ICU_RULE_LATIN_NORMALIZE ++ "NFKC; Traditional-Simplified; " ++
-    "Hiragana-Katakana";
+    "Greek-Latin; Latin-ASCII; Traditional-Simplified; " ++
+    "Hiragana-Katakana; Lower; NFKC";
 
 pub const LocaleInfo = struct {
     rules: []const u8,
@@ -60,6 +64,21 @@ test "rules mapping" {
     const info_ja = getLocaleInfo("ja_JP");
     try std.testing.expectEqualStrings(ICU_RULE_JA, info_ja.rules);
     try std.testing.expectEqualStrings("icu_ja", info_ja.tokenizer_name);
+}
+
+// Bug #28: the universal chain must convert (Traditional-Simplified,
+// Hiragana-Katakana) before the final Lower; NFKC, exactly like the JA/ZH
+// chains — never normalize first and convert last.
+test "default chain converts before it normalizes (bug #28)" {
+    const i_trad = std.mem.indexOf(u8, ICU_RULE_DEFAULT, "Traditional-Simplified");
+    const i_hk = std.mem.indexOf(u8, ICU_RULE_DEFAULT, "Hiragana-Katakana");
+    const i_lower = std.mem.indexOf(u8, ICU_RULE_DEFAULT, "Lower");
+    const i_nfkc = std.mem.lastIndexOf(u8, ICU_RULE_DEFAULT, "NFKC");
+    try std.testing.expect(i_trad != null and i_hk != null and i_lower != null and i_nfkc != null);
+    try std.testing.expect(i_trad.? < i_lower.?);
+    try std.testing.expect(i_hk.? < i_lower.?);
+    try std.testing.expect(i_lower.? < i_nfkc.?);
+    try std.testing.expect(std.mem.endsWith(u8, ICU_RULE_DEFAULT, "NFKC"));
 }
 
 // Bug #21: language matching must be case-insensitive (ICU locale IDs are)

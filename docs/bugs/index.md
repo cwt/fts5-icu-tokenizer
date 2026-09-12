@@ -79,7 +79,7 @@ logic, unoptimized algorithms, duplication) and are **open**.
 | [25](025.md) | Unit tests ran under ReleaseFast | LOW | Fixed |
 | [26](026.md) | Per-row full ICU open on the query-time override path | MEDIUM | Fixed |
 | [27](027.md) | Unchecked @intCast on untrusted FTS5 text lengths | MEDIUM | Fixed |
-| [28](028.md) | ICU_RULE_DEFAULT pipeline order diverges from JA/ZH | LOW | Open |
+| [28](028.md) | ICU_RULE_DEFAULT pipeline order diverges from JA/ZH | LOW | Fixed |
 | [29](029.md) | Single-retry overflow handling; silent drop on second overflow | LOW | Open |
 | [30](030.md) | Missing null checks on FTS5/extension pointers | LOW | Open |
 | [31](031.md) | Position-map safety rests entirely on phantom math | LOW | Open |

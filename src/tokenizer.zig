@@ -1535,6 +1535,39 @@ test "universal tokenizer applies Russian BGN and Arabic mark strip (bug #14/#18
     for (found) |f| try std.testing.expect(f);
 }
 
+// Bug #28: the reordered universal chain must still open in ICU and
+// tokenize CJK + Latin end to end, with Lower applied last (English ->
+// english) and every byte range inside the source text.
+test "universal CJK tokenization after chain reorder (bug #28)" {
+    const gpa = std.testing.allocator;
+
+    const tok = try IcuTokenizer.create(gpa, "");
+    defer tok.destroy(gpa);
+
+    const text = "日本語テスト and English";
+    var cap: CaptureWithRange = .{ .gpa = gpa, .tokens = .empty };
+    defer {
+        for (cap.tokens.items) |t| gpa.free(t.text);
+        cap.tokens.deinit(gpa);
+    }
+    const rc = try tokenizeText(gpa, tok, text, null, &cap, captureRangeCallback);
+    try std.testing.expectEqual(@as(c_int, c.SQLITE_OK), rc);
+    try std.testing.expect(cap.tokens.items.len > 0);
+
+    var found_english = false;
+    for (cap.tokens.items) |t| {
+        try std.testing.expect(t.i_start >= 0);
+        try std.testing.expect(t.i_start < t.i_end);
+        try std.testing.expect(t.i_end <= @as(i32, @intCast(text.len)));
+        if (std.mem.eql(u8, t.text, "english")) {
+            found_english = true;
+            try std.testing.expectEqual(@as(i32, 23), t.i_start);
+            try std.testing.expectEqual(@as(i32, 30), t.i_end);
+        }
+    }
+    try std.testing.expect(found_english);
+}
+
 // Bug #12: `u_strFromUTF8` was removed (dead; utf8ToUtf16Alloc uses the std
 // UTF-16 converter). This confirms the live transliteration path still works end
 // to end — rule string -> std UTF-16 conversion -> utrans -> UTF-8 — with no

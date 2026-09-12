@@ -84,6 +84,6 @@ logic, unoptimized algorithms, duplication) and are **open**.
 | [30](030.md) | Missing null checks on FTS5/extension pointers | LOW | Fixed |
 | [31](031.md) | Position-map safety rests entirely on phantom math | LOW | Fixed |
 | [32](032.md) | getFts5Api ignores bind/step return codes | LOW | Fixed |
-| [33](033.md) | Test harness cannot fail | LOW | Open |
+| [33](033.md) | Test harness cannot fail | LOW | Fixed |
 | [34](034.md) | Unfactored duplication across tokenizer, resolvers, build | LOW | Open |
 | [35](035.md) | 16-byte language buffer rejects long language subtags | LOW | Open |

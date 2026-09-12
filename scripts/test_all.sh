@@ -15,6 +15,10 @@ else
     exit 1
 fi
 
+# Bug #33: track failures so the script exits non-zero when any test
+# fails, instead of staying green unconditionally.
+FAILED=0
+
 # Detect shared library extension
 case "$(uname -s)" in
     Darwin) LIB_EXT=dylib ;;
@@ -51,6 +55,7 @@ if [ -f "./zig-out/lib/libfts5_icu.${LIB_EXT}" ]; then
     ${SQLITE3} < ./tests/test_universal_tokenizer.sql
     if [ $? -ne 0 ]; then
         echo "ERROR: Test failed for universal tokenizer"
+        FAILED=1
     else
         echo "SUCCESS: Universal tokenizer test completed"
     fi
@@ -91,6 +96,7 @@ for test_case in "${TEST_CASES[@]}"; do
             ${SQLITE3} < "./$test_script"
             if [ $? -ne 0 ]; then
                 echo "ERROR: Test failed for $locale tokenizer"
+                FAILED=1
             else
                 echo "SUCCESS: $locale tokenizer test completed"
             fi
@@ -113,9 +119,22 @@ echo "Testing TH and ZH on the universal tokenizer with some expected failed cas
 echo "============================================================================"
 
 if [ -f "./zig-out/lib/libfts5_icu.${LIB_EXT}" ]; then
+    # Bug #33: without PIPESTATUS, $? belongs to sed and this test can
+    # never fail.
     ${SQLITE3} < ./tests/test_universal_with_th_zh.sql | sed -e 's/|/ /g'  # format output for readability
+    if [ "${PIPESTATUS[0]}" -ne 0 ]; then
+        echo "ERROR: Test failed for TH/ZH on universal tokenizer"
+        FAILED=1
+    else
+        echo "SUCCESS: TH/ZH on universal tokenizer test completed"
+    fi
 else
     echo "WARNING: Universal tokenizer library not found, skipping TH/ZH test"
+fi
+
+if [ "${FAILED}" -ne 0 ]; then
+    echo "FAILURES DETECTED"
+    exit 1
 fi
 
 

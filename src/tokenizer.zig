@@ -1,4 +1,5 @@
 const std = @import("std");
+const compat = @import("compat.zig");
 const c = @import("c");
 const icu = @import("c_icu");
 const rules = @import("rules.zig");
@@ -66,7 +67,7 @@ pub const IcuTokenizer = struct {
         defer allocator.free(rules_u16);
 
         // Convert locale string to zero-terminated C string
-        const locale_c = try allocator.dupeZ(u8, locale);
+        const locale_c = try compat.dupeZ(allocator, locale);
         defer allocator.free(locale_c);
 
         // Bug #16: reject locales ICU cannot resolve (e.g. typo'd "xx_YY"),
@@ -492,7 +493,7 @@ pub fn tokenizeText(
                 pTransliterator = tokenizer.cached_trans.?;
             } else {
                 var status: c.UErrorCode = c.U_ZERO_ERROR;
-                const loc_c = try allocator.dupeZ(u8, loc);
+                const loc_c = try compat.dupeZ(allocator, loc);
                 defer allocator.free(loc_c);
 
                 // Bug #20: per-call overrides reach ubrk_open/utrans_openU at
@@ -554,7 +555,7 @@ pub fn tokenizeText(
         // Bug #17: use the effective (per-call override, when present) locale
         // instead of the tokenizer's own, matching ubrk_clone behavior on
         // newer ICU.
-        const locale_z = try allocator.dupeZ(u8, effective_locale);
+        const locale_z = try compat.dupeZ(allocator, effective_locale);
         defer allocator.free(locale_z);
         break :blk icu.ubrk_open(c.UBRK_WORD, locale_z.ptr, null, 0, &clone_status);
     };
@@ -1254,7 +1255,7 @@ test "tokenizeText Russian BGN keeps letters distinct (bug #14)" {
     const rc = try tokenizeText(gpa, tok, text, null, &cap, captureTokenCallback);
     try std.testing.expectEqual(@as(c_int, c.SQLITE_OK), rc);
 
-    var found = [_]bool{false} ** 9;
+    var found = std.mem.zeroes([9]bool);
     for (cap.tokens.items) |t| {
         if (std.mem.eql(u8, t, "borshch")) found[0] = true;
         if (std.mem.eql(u8, t, "bors")) found[1] = true;
@@ -1544,7 +1545,7 @@ test "tokenizeText Arabic tokens are pure ASCII (bug #18)" {
     for (cap.tokens.items) |t| {
         for (t) |b| try std.testing.expect(b < 0x80);
     }
-    var found = [_]bool{false} ** 4;
+    var found = std.mem.zeroes([4]bool);
     for (cap.tokens.items) |t| {
         if (std.mem.eql(u8, t, "alrbyt")) found[0] = true;
         if (std.mem.eql(u8, t, "rbyt")) found[1] = true;
@@ -1590,7 +1591,7 @@ test "universal tokenizer applies Russian BGN and Arabic mark strip (bug #14/#18
     try std.testing.expectEqual(@as(c_int, c.SQLITE_OK), rc);
 
     try std.testing.expect(cap.tokens.items.len >= 7);
-    var found = [_]bool{false} ** 7;
+    var found = std.mem.zeroes([7]bool);
     for (cap.tokens.items) |t| {
         for (t) |b| try std.testing.expect(b < 0x80);
         if (std.mem.eql(u8, t, "borshch")) found[0] = true;

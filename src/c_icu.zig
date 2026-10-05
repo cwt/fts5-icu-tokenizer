@@ -2,12 +2,12 @@ const std = @import("std");
 const builtin = @import("builtin");
 const c = @import("c");
 
-const icu_ver: u32 = if (builtin.os.tag.isDarwin()) 0 else @intCast(c.U_ICU_VERSION_MAJOR_NUM);
+const icu_ver: u32 = @intCast(c.U_ICU_VERSION_MAJOR_NUM);
 
 // Bug #22: single source of truth for ubrk_clone availability. Darwin's
 // libicucore exports the unversioned symbol regardless of header version;
 // elsewhere require a modern-enough ICU build macro.
-pub const has_ubrk_clone = builtin.os.tag.isDarwin() or icu_ver >= 69;
+pub const has_ubrk_clone = icu_ver >= 69;
 
 // Bug #34: one name helper instead of fifteen near-identical version
 // branches. Each resolution keeps its explicit short symbol string, so
@@ -35,13 +35,10 @@ pub const ubrk_getRuleStatus = @extern(*const @TypeOf(c.ubrk_getRuleStatus), .{ 
 // Callers gate on `has_ubrk_clone`.
 const UbrkCloneFn = *const fn (?*const c.UBreakIterator, ?*c.UErrorCode) callconv(.c) ?*c.UBreakIterator;
 
-pub const ubrk_clone: ?UbrkCloneFn = if (has_ubrk_clone) blk: {
-    const name = if (builtin.os.tag.isDarwin())
-        "ubrk_clone"
-    else
-        std.fmt.comptimePrint("ubrk_clone_{d}", .{icu_ver});
-    break :blk @extern(UbrkCloneFn, .{ .name = name });
-} else null;
+pub const ubrk_clone: ?UbrkCloneFn = if (has_ubrk_clone)
+    @extern(UbrkCloneFn, .{ .name = icuName("ubrk_clone") })
+else
+    null;
 
 pub const u_strToUTF8WithSub = @extern(*const @TypeOf(c.u_strToUTF8WithSub), .{ .name = icuName("u_strToUTF8WithSub") });
 pub const u_strToUTF8 = @extern(*const @TypeOf(c.u_strToUTF8), .{ .name = icuName("u_strToUTF8") });

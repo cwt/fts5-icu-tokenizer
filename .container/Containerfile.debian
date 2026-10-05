@@ -1,11 +1,14 @@
 FROM debian:stable
 
-RUN apt-get update && apt-get install -y libsqlite3-dev sqlite3 libicu-dev gcc wget xz-utils && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y libsqlite3-dev sqlite3 libicu-dev gcc wget xz-utils pkg-config && rm -rf /var/lib/apt/lists/*
 
 RUN ARCH=$(uname -m) && \
-    wget -q "https://ziglang.org/download/0.16.0/zig-${ARCH}-linux-0.16.0.tar.xz" && \
-    tar xf "zig-${ARCH}-linux-0.16.0.tar.xz" -C /usr/local && \
-    ln -s "/usr/local/zig-${ARCH}-linux-0.16.0/zig" /usr/local/bin/zig && \
-    rm "zig-${ARCH}-linux-0.16.0.tar.xz"
+    for VER in 0.16.0 0.17.0; do \
+        wget -q "https://ziglang.org/download/${VER}/zig-${ARCH}-linux-${VER}.tar.xz" && \
+        tar xf "zig-${ARCH}-linux-${VER}.tar.xz" -C /usr/local && \
+        ln -s "/usr/local/zig-${ARCH}-linux-${VER}/zig" "/usr/local/bin/zig-${VER}" && \
+        rm "zig-${ARCH}-linux-${VER}.tar.xz"; \
+    done && \
+    ln -s /usr/local/bin/zig-0.16.0 /usr/local/bin/zig
 
 WORKDIR /workspace

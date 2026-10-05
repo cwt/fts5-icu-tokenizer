@@ -3,7 +3,10 @@ const builtin = @import("builtin");
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
-    const optimize = b.option(std.builtin.OptimizeMode, "optimize", "Optimization mode") orelse .ReleaseFast;
+    const OptimizeMode = std.builtin.OptimizeMode;
+    const release_fast_mode: OptimizeMode = if (@hasField(OptimizeMode, "fast")) .fast else .ReleaseFast;
+    const debug_mode: OptimizeMode = if (@hasField(OptimizeMode, "debug")) .debug else .Debug;
+    const optimize = b.option(OptimizeMode, "optimize", "Optimization mode") orelse release_fast_mode;
 
     const locale = b.option([]const u8, "locale", "Tokenizer locale (e.g. ja, zh, th, ar, ru, he, el)") orelse "";
     const api_version = b.option([]const u8, "api_version", "FTS5 API version (v1 or v2)") orelse "v2";
@@ -45,15 +48,30 @@ pub fn build(b: *std.Build) void {
     }.apply;
     addIncludes(translate_c, is_macos);
 
+    const addLibraryPaths = struct {
+        fn apply(mod: *std.Build.Module, builder: *std.Build, macos: bool) void {
+            if (macos) {
+                mod.addLibraryPath(.{ .cwd_relative = "/opt/homebrew/opt/sqlite/lib" });
+                mod.addLibraryPath(.{ .cwd_relative = "/opt/homebrew/opt/icu4c/lib" });
+            } else {
+                const candidates = [_][]const u8{
+                    "/lib64",
+                    "/usr/lib64",
+                    "/usr/lib/aarch64-linux-gnu",
+                    "/usr/lib/x86_64-linux-gnu",
+                };
+                for (candidates) |p| {
+                    if (std.Io.Dir.accessAbsolute(builder.graph.io, p, .{})) |_| {
+                        mod.addLibraryPath(.{ .cwd_relative = p });
+                    } else |_| {}
+                }
+            }
+        }
+    }.apply;
+
     const c_mod = translate_c.createModule();
     addIncludes(c_mod, is_macos);
-    if (is_macos) {
-        c_mod.addLibraryPath(.{ .cwd_relative = "/opt/homebrew/opt/sqlite/lib" });
-        c_mod.addLibraryPath(.{ .cwd_relative = "/opt/homebrew/opt/icu4c/lib" });
-    } else {
-        c_mod.addLibraryPath(.{ .cwd_relative = "/lib64" });
-        c_mod.addLibraryPath(.{ .cwd_relative = "/usr/lib64" });
-    }
+    addLibraryPaths(c_mod, b, is_macos);
     c_mod.linkSystemLibrary("sqlite3", .{});
     c_mod.linkSystemLibrary("icui18n", .{});
     c_mod.linkSystemLibrary("icuuc", .{});
@@ -70,16 +88,10 @@ pub fn build(b: *std.Build) void {
     });
 
     const linkModule = struct {
-        fn apply(mod: *std.Build.Module, macos: bool) void {
+        fn apply(mod: *std.Build.Module, builder: *std.Build, macos: bool) void {
             mod.addSystemIncludePath(.{ .cwd_relative = "/usr/include" });
             mod.addSystemIncludePath(.{ .cwd_relative = "/usr/local/include" });
-            if (macos) {
-                mod.addLibraryPath(.{ .cwd_relative = "/opt/homebrew/opt/sqlite/lib" });
-                mod.addLibraryPath(.{ .cwd_relative = "/opt/homebrew/opt/icu4c/lib" });
-            } else {
-                mod.addLibraryPath(.{ .cwd_relative = "/lib64" });
-                mod.addLibraryPath(.{ .cwd_relative = "/usr/lib64" });
-            }
+            addLibraryPaths(mod, builder, macos);
             mod.linkSystemLibrary("sqlite3", .{ .needed = true });
             mod.linkSystemLibrary("icui18n", .{ .needed = true });
             mod.linkSystemLibrary("icuuc", .{ .needed = true });
@@ -106,7 +118,7 @@ pub fn build(b: *std.Build) void {
             .{ .name = "build_options", .module = options_mod },
         },
     });
-    linkModule(root_module, is_macos);
+    linkModule(root_module, b, is_macos);
 
     // Dynamic library build (fts5_icu)
     const lib = b.addLibrary(.{
@@ -133,7 +145,7 @@ pub fn build(b: *std.Build) void {
             .{ .name = "build_options", .module = legacy_options.createModule() },
         },
     });
-    linkModule(legacy_root_module, is_macos);
+    linkModule(legacy_root_module, b, is_macos);
 
     const lib_legacy = b.addLibrary(.{
         .linkage = .dynamic,
@@ -168,7 +180,7 @@ pub fn build(b: *std.Build) void {
                 .{ .name = "build_options", .module = loc_options.createModule() },
             },
         });
-        linkModule(loc_root, is_macos);
+        linkModule(loc_root, b, is_macos);
 
         const loc_lib = b.addLibrary(.{
             .linkage = .dynamic,
@@ -194,7 +206,7 @@ pub fn build(b: *std.Build) void {
                 .{ .name = "build_options", .module = loc_leg_options.createModule() },
             },
         });
-        linkModule(loc_leg_root, is_macos);
+        linkModule(loc_leg_root, b, is_macos);
 
         const loc_leg_lib = b.addLibrary(.{
             .linkage = .dynamic,
@@ -215,14 +227,14 @@ pub fn build(b: *std.Build) void {
     const test_root_module = b.createModule(.{
         .root_source_file = b.path("src/fts5_icu.zig"),
         .target = target,
-        .optimize = .Debug,
+        .optimize = debug_mode,
         .imports = &.{
             .{ .name = "c", .module = c_mod },
             .{ .name = "c_icu", .module = c_icu_mod },
             .{ .name = "build_options", .module = options_mod },
         },
     });
-    linkModule(test_root_module, is_macos);
+    linkModule(test_root_module, b, is_macos);
 
     const unit_tests = b.addTest(.{
         .root_module = test_root_module,
@@ -243,7 +255,7 @@ pub fn build(b: *std.Build) void {
             .{ .name = "c_icu", .module = c_icu_mod },
         },
     });
-    linkModule(translit_mod, is_macos);
+    linkModule(translit_mod, b, is_macos);
 
     const exe_translit = b.addExecutable(.{
         .name = "test_transliterator",
@@ -265,7 +277,7 @@ pub fn build(b: *std.Build) void {
             .{ .name = "c_icu", .module = c_icu_mod },
         },
     });
-    linkModule(locale_tests_mod, is_macos);
+    linkModule(locale_tests_mod, b, is_macos);
 
     const exe_locale_tests = b.addExecutable(.{
         .name = "locale_specific_tests",
@@ -287,7 +299,7 @@ pub fn build(b: *std.Build) void {
             .{ .name = "c_icu", .module = c_icu_mod },
         },
     });
-    linkModule(tok_test_mod, is_macos);
+    linkModule(tok_test_mod, b, is_macos);
 
     const exe_tok_test = b.addExecutable(.{
         .name = "test_locale_tokenizer",

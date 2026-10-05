@@ -1,4 +1,5 @@
 const std = @import("std");
+const compat = @import("compat.zig");
 const c = @import("c");
 const build_options = @import("build_options");
 const rules = @import("rules.zig");
@@ -230,7 +231,7 @@ fn initExtensionForLocaleInner(
     }
 
     const tok_name = rules.getTokenizerNameForLocale(locale);
-    const tok_name_c = std.heap.c_allocator.dupeZ(u8, tok_name) catch return c.SQLITE_NOMEM;
+    const tok_name_c = compat.dupeZ(std.heap.c_allocator, tok_name) catch return c.SQLITE_NOMEM;
     defer std.heap.c_allocator.free(tok_name_c);
 
     // Bug #30: a null register function is a clean error, not a segfault.

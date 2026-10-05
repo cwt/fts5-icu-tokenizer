@@ -1,12 +1,10 @@
 const std = @import("std");
-const builtin = @import("builtin");
 const c = @import("c");
 
 const icu_ver: u32 = @intCast(c.U_ICU_VERSION_MAJOR_NUM);
 
-// Bug #22: single source of truth for ubrk_clone availability. Darwin's
-// libicucore exports the unversioned symbol regardless of header version;
-// elsewhere require a modern-enough ICU build macro.
+// Bug #22: single source of truth for ubrk_clone availability. ICU >= 69
+// provides ubrk_clone (replacing deprecated ubrk_safeClone).
 pub const has_ubrk_clone = icu_ver >= 69;
 
 // Bug #34: one name helper instead of fifteen near-identical version
@@ -15,10 +13,7 @@ pub const has_ubrk_clone = icu_ver >= 69;
 // `@extern(T, ...)` from a generic function is rejected: @extern needs a
 // concrete pointer type, so the call stays at container scope.)
 fn icuName(comptime short: []const u8) [:0]const u8 {
-    return if (icu_ver > 0)
-        std.fmt.comptimePrint("{s}_{d}", .{ short, icu_ver })
-    else
-        std.fmt.comptimePrint("{s}", .{short});
+    return std.fmt.comptimePrint("{s}_{d}", .{ short, icu_ver });
 }
 
 pub const ubrk_open = @extern(*const @TypeOf(c.ubrk_open), .{ .name = icuName("ubrk_open") });

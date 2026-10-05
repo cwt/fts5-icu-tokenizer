@@ -1,6 +1,6 @@
 FROM debian:stable
 
-RUN apt-get update && apt-get install -y libsqlite3-dev sqlite3 libicu-dev gcc wget xz-utils pkg-config && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y libsqlite3-dev sqlite3 libicu-dev gcc wget xz-utils && rm -rf /var/lib/apt/lists/*
 
 RUN ARCH=$(uname -m) && \
     for VER in 0.16.0 0.17.0; do \

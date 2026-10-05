@@ -55,10 +55,28 @@ pub fn build(b: *std.Build) void {
                 mod.addLibraryPath(.{ .cwd_relative = "/opt/homebrew/opt/icu4c/lib" });
             } else {
                 const candidates = [_][]const u8{
+                    // Standard FHS & distro layouts (Alpine, Arch, Void, EL/Fedora, Slackware)
+                    "/lib",
+                    "/usr/lib",
+                    "/usr/local/lib",
                     "/lib64",
                     "/usr/lib64",
+                    "/usr/local/lib64",
+                    // Debian / Ubuntu multiarch triplets
                     "/usr/lib/aarch64-linux-gnu",
                     "/usr/lib/x86_64-linux-gnu",
+                    "/usr/lib/arm-linux-gnueabihf",
+                    "/usr/lib/arm-linux-gnueabi",
+                    "/usr/lib/i386-linux-gnu",
+                    "/usr/lib/riscv64-linux-gnu",
+                    "/usr/lib/powerpc64le-linux-gnu",
+                    "/usr/lib/s390x-linux-gnu",
+                    "/usr/lib/loongarch64-linux-gnu",
+                    // Musl multiarch layouts
+                    "/usr/lib/x86_64-linux-musl",
+                    "/usr/lib/aarch64-linux-musl",
+                    "/usr/lib/arm-linux-musleabihf",
+                    "/usr/lib/riscv64-linux-musl",
                 };
                 for (candidates) |p| {
                     if (std.Io.Dir.accessAbsolute(builder.graph.io, p, .{})) |_| {

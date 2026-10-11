@@ -7,7 +7,7 @@ sources:
   - build.zig
 verified: human-reviewed
 tags: [bugs, verification, testing]
-timestamp: 2026-09-12T19:06:49Z
+timestamp: 2026-10-12T06:36:40+07:00
 ---
 
 # Verification history
@@ -44,3 +44,12 @@ to these areas.
   the full `zig build` and the v1/v2 SQLite test suites.
 - `zig build test` runs the suite (34 tests) in Debug with safety checks
   enabled (see [Bug 25](025.md)).
+
+## Fourth pass (bugs #26–#35 & dual Zig 0.16.0 / 0.17.0)
+
+- `zig build test` — **43/43** unit tests pass on both Zig 0.16.0 and Zig 0.17.0.
+- Host macOS and container matrix: EL9 (ICU 67), EL10 (ICU 74), Debian 13 (ICU 76),
+  Ubuntu 26.04 (ICU 78), and Fedora 44 (ICU 77) all pass `test_all_legacy.sh`
+  and `test_all.sh` cleanly under both Zig 0.16.0 and 0.17.0.
+- Multi-threaded query-time locale override caching verified under concurrent stress testing.
+- Bounded transliteration retry and 128 MiB document size limits verified by regression tests.

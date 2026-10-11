@@ -1,13 +1,13 @@
 ---
 type: index
 title: "Bug Tracker — fts5-icu-tokenizer"
-description: "One file per bug (#1–#35; #1–#25 fixed, #26–#35 open), plus ruled-out concerns and verification."
+description: "One file per bug (#1–#35, all fixed), plus ruled-out concerns and verification."
 status: stable
 sources:
   - docs/bugs/
 verified: human-reviewed
 tags: [bugs, tracker, index, issues]
-timestamp: 2026-09-12T19:06:49Z
+timestamp: 2026-10-12T06:36:40+07:00
 ---
 
 # Bugs — fts5-icu-tokenizer

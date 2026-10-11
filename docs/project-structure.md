@@ -7,7 +7,7 @@ sources:
   - docs/
 verified: human-reviewed
 tags: [structure, overview]
-timestamp: 2026-09-12T19:06:49Z
+timestamp: 2026-10-12T06:36:40+07:00
 stale_after: 2027-03-12T00:00:00Z
 ---
 
@@ -56,6 +56,7 @@ Source code files:
 - `fts5_icu.zig` - Entrypoint for FTS5 ICU tokenizers (v1 & v2 APIs)
 - `tokenizer.zig` - Core tokenization logic & ICU word boundary iterator
 - `rules.zig` - Locale-specific transliteration & normalization rule mappings
+- `compat.zig` - Cross-version compatibility shims for Zig 0.16.0 / 0.17.0
 - `c_icu.zig` / `c_includes.h` - C interop bindings for ICU & SQLite APIs
 
 ### `tests/`

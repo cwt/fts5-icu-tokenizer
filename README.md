@@ -1,8 +1,8 @@
-# FTS5 ICU Tokenizer for SQLite (Zig 0.16.0 Edition)
+# FTS5 ICU Tokenizer for SQLite (Zig 0.16.0 & 0.17.0 Edition)
 
-Version **7.1.1**
+Version **7.2.0**
 
-This project provides custom FTS5 tokenizers for SQLite implemented in **Zig 0.16.0** using the International Components for Unicode (ICU) library to provide robust word segmentation and text normalization across multiple languages.
+This project provides custom FTS5 tokenizers for SQLite implemented in **Zig 0.16.0** (with verified forward compatibility for **Zig 0.17.0**) using the International Components for Unicode (ICU) library to provide robust word segmentation and text normalization across multiple languages.
 
 ---
 
@@ -212,7 +212,7 @@ SELECT * FROM documents_th2 WHERE documents_th2 MATCH 'ภาษา';
 ### Querying Version
 ```sql
 .load ./zig-out/lib/libfts5_icu
-SELECT fts5_icu_version(); -- Returns "7.1.1"
+SELECT fts5_icu_version(); -- Returns "7.2.0"
 ```
 
 ### Upgrading from v6.x
@@ -258,6 +258,32 @@ holding such documents (procedure shown above). Behavior changes to note:
   `arn`, `jam`).
 - `zig build test` now runs the suite in Debug with safety checks enabled.
 
+### Upgrading from v7.1.1
+
+Version 7.2.0 is a minor feature and hardening release covering follow-up
+audit findings (bugs #26–#35), query optimization, and dual toolchain support:
+
+- **Universal CJK Rule Order (Bug #28)**: In `ICU_RULE_DEFAULT`, conversions
+  (`Traditional-Simplified`, `Hiragana-Katakana`) now run *before* the final
+  `Lower; NFKC`, aligning the universal chain with the dedicated `icu_ja`
+  and `icu_zh` pipelines.
+  > **Note**: Universal-tokenizer (`icu`) indexes containing Chinese or
+  > Japanese text should be rebuilt after upgrading (using the procedure
+  > shown above). Latin-script tokens are byte-identical.
+- **Zig 0.16.0 & 0.17.0 Dual Toolchain Support**: Builds out of the box on both
+  Zig 0.16.0 and Zig 0.17.0 from the same source tree. Dynamic library search
+  paths probe standard multiarch FHS directories (`/usr/lib`,
+  `/usr/lib/*-linux-gnu`, `/lib64`, musl triplets) cleanly.
+- **Query-Time Locale Cache (Bug #26)**: Added an atomics-based spin-yield cache
+  for query-time (FTS5 v2 per-row) locale overrides, avoiding repeated handle
+  initialization under concurrency.
+- **Oversized Input Bounds Check (Bug #27)**: Added `max_text_len` (128 MiB)
+  boundary returning `SQLITE_TOOBIG` or `error.TextTooLarge` before allocation
+  to prevent integer overflow on untrusted lengths.
+- **Defensive Hardening**: Added null pointer guards for FTS5 extension
+  registration, bounded transliteration growth retries, and step-checking for
+  FTS5 API retrieval (bugs #29–#32, #35).
+
 ---
 
 ## Supported Locales & ICU Rules
@@ -272,7 +298,7 @@ holding such documents (procedure shown above). Behavior changes to note:
 | `ru` | `icu_ru` | `NFKD; Russian-Latin/BGN; Latin-ASCII; Lower; NFKC` |
 | `he` | `icu_he` | `NFKD; Hebrew-Latin; Latin-ASCII; Lower; NFKC` |
 | `el` | `icu_el` | `NFKD; Greek-Latin; Latin-ASCII; Lower; NFKC` |
-| — | `icu` (Universal) | `NFKD; Arabic-Latin; Russian-Latin/BGN; Hebrew-Latin; Greek-Latin; Latin-ASCII; Lower; NFKC; Traditional-Simplified; Hiragana-Katakana` |
+| — | `icu` (Universal) | `NFKD; Arabic-Latin; Russian-Latin/BGN; Hebrew-Latin; Greek-Latin; Latin-ASCII; Traditional-Simplified; Hiragana-Katakana; Lower; NFKC` |
 
 ### Transliteration Mapping Notes
 

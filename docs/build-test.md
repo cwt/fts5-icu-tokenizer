@@ -8,7 +8,7 @@ sources:
   - build.zig
 verified: human-reviewed
 tags: [build, test, locales, runbook]
-timestamp: 2026-09-12T19:06:49Z
+timestamp: 2026-10-12T06:36:40+07:00
 stale_after: 2027-03-12T00:00:00Z
 ---
 

@@ -207,6 +207,7 @@ pub fn transliterateString(allocator: std.mem.Allocator, input: []const u8, rule
 
     _ = icu.u_strToUTF8(buf_with_nul.ptr, utf8_len + 1, null, output_u16.ptr, limit, &status);
     if (c.U_FAILURE(status)) {
+        allocator.free(buf_with_nul);
         return error.Utf8ConvertFailed;
     }
 

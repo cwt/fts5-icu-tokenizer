@@ -1,23 +1,24 @@
 ---
 type: index
 title: "Bug Tracker — fts5-icu-tokenizer"
-description: "One file per bug (#1–#35, all fixed), plus ruled-out concerns and verification."
+description: "One file per bug (#1–#43), plus ruled-out concerns and verification."
 status: stable
 sources:
   - docs/bugs/
 verified: human-reviewed
 tags: [bugs, tracker, index, issues]
-timestamp: 2026-10-12T06:36:40+07:00
+timestamp: 2026-10-16T22:01:00+07:00
 ---
 
 # Bugs — fts5-icu-tokenizer
 
-Source-level audit findings for the FTS5 ICU tokenizer (Zig 0.16.0). Bugs
+Source-level audit findings for the FTS5 ICU tokenizer (Zig 0.16.0 / 0.17.0). Bugs
 #1–#25 were filed across three passes and are all fixed and committed
 separately, each with a dedicated regression test (`zig build test`).
 Bugs #26–#35 were filed by a follow-up deep audit (memory safety, wrong
-logic, unoptimized algorithms, duplication) and are now all fixed the
-same way.
+logic, unoptimized algorithms, duplication) and are all fixed.
+Bugs #36–#43 were filed during the fifth audit pass (Zig 0.16/0.17 skill
+review & deep code audit).
 
 - [Ruled out (not bugs)](ruled-out.md)
 - [Verification history](verification.md)
@@ -41,13 +42,14 @@ same way.
 | Second pass, probe-driven (ICU 78 + 67.1.0) | #14–#18 | All FIXED |
 | Third pass, probe-driven (ICU 78) | #19–#25 | All FIXED |
 | Follow-up deep audit (2026-09-12) | #26–#35 | All FIXED |
+| Fifth pass, deep code audit (2026-10-16) | #36–#43 | #36 FIXED, #37–#43 OPEN |
 
 | Severity | Count |
 |---|---:|
-| HIGH | 4 |
-| MEDIUM | 7 |
-| LOW | 24 |
-| **Total** | **35** |
+| HIGH | 5 |
+| MEDIUM | 9 |
+| LOW | 29 |
+| **Total** | **43** |
 
 ## All Bugs
 
@@ -88,3 +90,11 @@ same way.
 | [33](033.md) | Test harness cannot fail | LOW | Fixed |
 | [34](034.md) | Unfactored duplication across tokenizer, resolvers, build | LOW | Fixed |
 | [35](035.md) | 16-byte language buffer rejects long language subtags | LOW | Fixed |
+| [36](036.md) | Leak of buf_with_nul on u_strToUTF8 failure in transliterateString | LOW | Fixed |
+| [37](037.md) | Memory leak in tokenizeText pre-transliteration retry loop when use_stack is true | HIGH | Open |
+| [38](038.md) | Signed i32 arithmetic overflow on buffer growth calculations | MEDIUM | Open |
+| [39](039.md) | CacheMutex spinlock contention and fallible Thread.yield | LOW | Open |
+| [40](040.md) | Double UTF-8 decode pass and duplicated decoder in tokenizeText | MEDIUM | Open |
+| [41](041.md) | isValidLocaleLanguage misses regional-only ICU locales and redundant orig_space_total scan | LOW | Open |
+| [42](042.md) | Remaining code duplication across rules.zig, tokenizer.zig, and build.zig | LOW | Open |
+| [43](043.md) | Test harness defects in test_all_legacy.sh, lint-check.sh, and test_universal_tokenizer.sql | LOW | Open |

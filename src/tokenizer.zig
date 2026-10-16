@@ -141,6 +141,20 @@ fn growHeapBuf(comptime T: type, allocator: std.mem.Allocator, slot: *?[]T, need
     }
 }
 
+// Bug #38: ICU reports lengths as i32 and takes capacities as i32. A grown
+// buffer size is `len + headroom`; doing that addition in i32 (`utf8_len + 64`)
+// overflows near maxInt(i32) — a panic in Debug, a silent wrap in ReleaseFast
+// — and a later `@intCast(need)` back to i32 is unchecked. Widen to usize
+// first, then verify the result still fits an i32 capacity before any caller
+// hands it to ICU. A negative `len` (never produced by a healthy ICU) is
+// rejected rather than cast.
+fn grownLen(len: i32, headroom: usize) error{TextTooLarge}!usize {
+    if (len < 0) return error.TextTooLarge;
+    const need = @as(usize, @intCast(len)) + headroom;
+    if (need > std.math.maxInt(i32)) return error.TextTooLarge;
+    return need;
+}
+
 pub fn transliterateString(allocator: std.mem.Allocator, input: []const u8, rule_str: []const u8) ![]u8 {
     if (input.len > max_text_len) return error.TextTooLarge;
     // Bug #34: sniff each rule feature once instead of rescanning per branch.
@@ -185,7 +199,9 @@ pub fn transliterateString(allocator: std.mem.Allocator, input: []const u8, rule
         // would run on the already-freed pointer (double free, CWE-415). By
         // allocating into `new_u16` first, a failed realloc leaves `output_u16`
         // pointing at the still-valid original buffer, which `defer` frees once.
-        const need: usize = @as(usize, @intCast(out_len)) + 64;
+        // Bug #38: widened, i32-range-checked size; the @intCast(need) below
+        // is therefore safe.
+        const need = try grownLen(out_len, 64);
         const new_u16 = try allocator.alloc(c.UChar, need);
         allocator.free(output_u16);
         output_u16 = new_u16;
@@ -218,9 +234,11 @@ pub fn transliterateString(allocator: std.mem.Allocator, input: []const u8, rule
     // sub-slice of the +1 buffer would be unfreeable. The previous code used a
     // `utf8_len`-byte buffer with `destCapacity = utf8_len + 1`, a 1-byte heap
     // overflow (the NUL was written one byte past the allocation, CWE-787).
-    const buf_with_nul = try allocator.alloc(u8, @as(usize, @intCast(utf8_len)) + 1);
+    // Bug #38: `utf8_len + 1` was added in i32; widen first and range-check.
+    const utf8_cap = try grownLen(utf8_len, 1);
+    const buf_with_nul = try allocator.alloc(u8, utf8_cap);
 
-    _ = icu.u_strToUTF8(buf_with_nul.ptr, utf8_len + 1, null, output_u16.ptr, limit, &status);
+    _ = icu.u_strToUTF8(buf_with_nul.ptr, @intCast(utf8_cap), null, output_u16.ptr, limit, &status);
     if (c.U_FAILURE(status)) {
         allocator.free(buf_with_nul);
         return error.Utf8ConvertFailed;
@@ -641,7 +659,9 @@ pub fn tokenizeText(
         icu.utrans_transUChars(pClonedTransliterator, cur_norm.ptr, &tlen, @intCast(cur_norm.len), 0, &tlimit, &ts);
         var norm_retries: u32 = 0;
         while (ts == c.U_BUFFER_OVERFLOW_ERROR and norm_retries < max_translit_retries) : (norm_retries += 1) {
-            const need: usize = @as(usize, @intCast(tlen)) + 64;
+            // Bug #38: widened, i32-range-checked size (the @intCast(cur_norm.len)
+            // below stays in range); too-large input fails loudly.
+            const need = grownLen(tlen, 64) catch return c.SQLITE_TOOBIG;
             // Bug #37: branch on heap_norm's actual state (via growHeapBuf),
             // not on the fixed `use_stack` flag, so a second overflow
             // reallocs instead of leaking the first heap buffer.
@@ -768,7 +788,10 @@ pub fn tokenizeText(
 
         // Convert the normalized token (UTF-16) to UTF-8
         var utf8_len: i32 = 0;
-        const reqDest = nSrc * 4 + 64;
+        // Bug #38: every ICU capacity below is passed as an i32, so the
+        // heuristic size is clamped to that range (a rare, extreme token
+        // overflows into the checked retry path instead of an unchecked cast).
+        const reqDest = @min(nSrc * 4 + 64, std.math.maxInt(i32));
         if (destBuf.len < reqDest) {
             if (heap_dest) |hd| {
                 heap_dest = try allocator.realloc(hd, reqDest);
@@ -783,7 +806,8 @@ pub fn tokenizeText(
         _ = icu.u_strToUTF8WithSub(destBuf.ptr, @intCast(destBuf.len), &utf8_len, normText[t_start..].ptr, @intCast(nSrc), 0xFFFD, null, &conv_status);
         var dest_retries: u32 = 0;
         while ((conv_status == c.U_BUFFER_OVERFLOW_ERROR or (c.U_FAILURE(conv_status) and utf8_len > @as(i32, @intCast(destBuf.len)))) and dest_retries < max_translit_retries) : (dest_retries += 1) {
-            const newDestSize: usize = @intCast(utf8_len + 64);
+            // Bug #38: widen before adding headroom; too-large fails loudly.
+            const newDestSize = grownLen(utf8_len, 64) catch return c.SQLITE_TOOBIG;
             if (heap_dest) |hd| {
                 heap_dest = try allocator.realloc(hd, newDestSize);
                 destBuf = heap_dest.?;
@@ -1811,4 +1835,44 @@ test "tokenizeText stack-start normalization overflow does not leak (bug #37)" {
         if (std.mem.eql(u8, t, "tail")) found_tail = true;
     }
     try std.testing.expect(found_tail);
+}
+
+// Bug #38: `utf8_len + 64` / `utf8_len + 1` were evaluated in signed i32
+// before widening, so a length near maxInt(i32) overflowed (panic in Debug,
+// wrap in ReleaseFast), and grown capacities were cast back to i32 unchecked.
+// `grownLen` widens first and rejects anything that no longer fits an i32
+// ICU capacity. A real 2 GiB buffer is impractical in a unit test, so the
+// boundaries are checked on the helper directly.
+test "grownLen widens before adding and enforces the i32 ceiling (bug #38)" {
+    const max_i32: i32 = std.math.maxInt(i32);
+
+    // Ordinary growth.
+    try std.testing.expectEqual(@as(usize, 64), try grownLen(0, 64));
+    try std.testing.expectEqual(@as(usize, 101), try grownLen(100, 1));
+
+    // Exactly at the ceiling is still representable as an i32 capacity...
+    try std.testing.expectEqual(@as(usize, std.math.maxInt(i32)), try grownLen(max_i32 - 64, 64));
+    try std.testing.expectEqual(@as(usize, std.math.maxInt(i32)), try grownLen(max_i32 - 1, 1));
+
+    // ...one unit past it is rejected (the old i32 addition overflowed here).
+    try std.testing.expectError(error.TextTooLarge, grownLen(max_i32 - 63, 64));
+    try std.testing.expectError(error.TextTooLarge, grownLen(max_i32, 1));
+    try std.testing.expectError(error.TextTooLarge, grownLen(max_i32, 64));
+
+    // A negative length is never valid input for a size computation.
+    try std.testing.expectError(error.TextTooLarge, grownLen(-1, 64));
+}
+
+// Bug #38: the rewritten sizing in the real paths still produces correct
+// output (UTF-8 conversion capacity `utf8_len + 1` and the overflow retry).
+test "transliterateString sizing stays correct after i32 hardening (bug #38)" {
+    const gpa = std.testing.allocator;
+
+    const out = try transliterateString(gpa, "ABCD", "Any-Name"); // forces the grow-retry
+    defer gpa.free(out);
+    try std.testing.expect(std.mem.indexOf(u8, out, "LATIN CAPITAL LETTER A") != null);
+
+    const cafe = try transliterateString(gpa, "Café", rules.ICU_RULE_DEFAULT);
+    defer gpa.free(cafe);
+    try std.testing.expectEqualStrings("cafe", cafe);
 }

@@ -1,9 +1,10 @@
 .{
     .name = .fts5_icu_tokenizer,
-    .version = "7.2.0",
+    .version = "7.2.1",
     .fingerprint = 0x1a06cd2de93c7f1d,
     .minimum_zig_version = "0.16.0",
     .dependencies = .{},
+
     .paths = .{
         "build.zig",
         "build.zig.zon",

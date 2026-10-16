@@ -364,7 +364,7 @@ comptime {
 }
 
 test "version string" {
-    try std.testing.expectEqualStrings("7.2.0", VERSION);
+    try std.testing.expectEqualStrings("7.2.1", VERSION);
 }
 
 // Bug #6: the SQLite entry points used to be ~35 hand-written, near-identical

@@ -7,13 +7,14 @@ sources:
   - docs/
 verified: human-reviewed
 tags: [index, docs]
-timestamp: 2026-10-16T22:01:00+07:00
+timestamp: 2026-10-16T23:22:29+07:00
 ---
 
 # Documentation — fts5-icu-tokenizer
 
-- [Bug tracker](bugs/index.md) — one file per bug (#1–#43),
+- [Bug tracker](bugs/index.md) — one file per bug (#1–#43, all fixed),
   plus ruled-out concerns, verification history, and minor notes.
+
 - [FTS5 API implementation](fts5-api-implementation.md) — v1/v2 API
   structs, tokenizer functions, and registration entrypoints.
 - [Build and test](build-test.md) — supported locales, build/test scripts,

@@ -7,10 +7,11 @@ sources:
   - build.zig
 verified: human-reviewed
 tags: [bugs, verification, testing]
-timestamp: 2026-10-12T06:36:40+07:00
+timestamp: 2026-10-16T23:22:29+07:00
 ---
 
 # Verification history
+
 
 Recorded per audit pass for the [bug tracker](index.md). Re-run
 `zig build`, `zig build test`, and `scripts/test_all.sh` after any change
@@ -53,3 +54,15 @@ to these areas.
   and `test_all.sh` cleanly under both Zig 0.16.0 and 0.17.0.
 - Multi-threaded query-time locale override caching verified under concurrent stress testing.
 - Bounded transliteration retry and 128 MiB document size limits verified by regression tests.
+
+## Fifth pass (bugs #36–#43 & release v7.2.1)
+
+- `zig build test` — **59/59** unit tests pass on both Zig 0.16.0 and Zig 0.17.0.
+- Host macOS: `scripts/test_all.sh` and `scripts/test_all_legacy.sh` cleanly pass across all 8 locales and universal tokenizer (API v1 & v2).
+- Memory leak fixes on transliteration retry loops verified (#36, #37).
+- Buffer growth widening to `usize` with `maxInt(i32)` overflow protection verified (#38).
+- Contention-free infallible `CacheMutex` lock verified (#39).
+- Unified single-pass UTF-8 conversion and offset mapping with ASCII fast-path verified (#40).
+- Regional ICU locale language subtag matching and position map fast-path verified (#41).
+- Code deduplication across rules, tokenizer, and build verified (#42).
+- Legacy test runner failure tracking, AST lint checking, and Russian transliteration query in `test_universal_tokenizer.sql` verified (#43).

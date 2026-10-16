@@ -1,6 +1,7 @@
 # FTS5 ICU Tokenizer for SQLite (Zig 0.16.0 & 0.17.0 Edition)
 
-Version **7.2.0**
+Version **7.2.1**
+
 
 This project provides custom FTS5 tokenizers for SQLite implemented in **Zig 0.16.0** (with verified forward compatibility for **Zig 0.17.0**) using the International Components for Unicode (ICU) library to provide robust word segmentation and text normalization across multiple languages.
 
@@ -212,10 +213,11 @@ SELECT * FROM documents_th2 WHERE documents_th2 MATCH 'ภาษา';
 ### Querying Version
 ```sql
 .load ./zig-out/lib/libfts5_icu
-SELECT fts5_icu_version(); -- Returns "7.2.0"
+SELECT fts5_icu_version(); -- Returns "7.2.1"
 ```
 
 ### Upgrading from v6.x
+
 
 Version 7.0.0 changed the transliteration pipeline (pre-transliteration
 architecture, Latin-ASCII on locale-specific *-Latin rules, and reversed
@@ -284,9 +286,38 @@ audit findings (bugs #26–#35), query optimization, and dual toolchain support:
   registration, bounded transliteration growth retries, and step-checking for
   FTS5 API retrieval (bugs #29–#32, #35).
 
+### Upgrading from v7.2.0
+
+Version 7.2.1 is a patch and hardening release covering the fifth audit pass
+(bugs #36–#43). Token forms are **identical to v7.2.0**, so existing FTS5
+indexes remain fully compatible and do not need to be rebuilt.
+
+Highlights of v7.2.1:
+- **Memory Leak Fixes (Bugs #36, #37)**: Fixed leak of `buf_with_nul` on `u_strToUTF8`
+  failure during transliteration retry and eliminated heap buffer leakage across
+  pre-transliteration retry loops when the initial attempt used stack memory.
+- **Buffer Growth Bounds & Arithmetic Safety (Bug #38)**: Buffer growth calculations
+  now widen arithmetic to `usize` before applying growth headroom and enforce
+  `maxInt(i32)` limits, safely returning `error.TextTooLarge` / `SQLITE_TOOBIG` instead of
+  overflowing.
+- **Optimized CacheMutex (Bug #39)**: Replaced fallible, contending spinlock with an
+  infallible test-and-test-and-set using `cmpxchgWeak` with relaxed loads and
+  `std.atomic.spinLoopHint()`.
+- **Single-Pass UTF-8 Decode (Bug #40)**: Unified UTF-8 decoding and byte offset mapping
+  into a single pass (`convertUtf8ToUtf16Tolerant`) with an ASCII fast-path, eliminating
+  redundant traversal.
+- **Regional Locale Matching & Position Map Optimization (Bug #41)**: Resolved
+  `isValidLocaleLanguage` rejecting regional-only ICU locales and optimized position
+  mapping with a zero-whitespace fast-path.
+- **Internal Refactoring & Test Harness Hardening (Bugs #42, #43)**: Consolidated rule
+  feature sniffing, language alias checks, and build steps across `rules.zig`,
+  `tokenizer.zig`, and `build.zig`; added strict exit code checking in `test_all_legacy.sh`,
+  comprehensive AST checking in `lint-check.sh`, and updated Russian transliteration test queries.
+
 ---
 
 ## Supported Locales & ICU Rules
+
 
 | Locale | Tokenizer Name | Default Transliteration Rules |
 |--------|----------------|-------------------------------|

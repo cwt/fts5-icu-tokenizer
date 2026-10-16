@@ -7,9 +7,10 @@ sources:
   - scripts/
 verified: human-reviewed
 tags: [scripts, reference, runbook]
-timestamp: 2026-10-12T06:36:40+07:00
+timestamp: 2026-10-16T23:22:29+07:00
 stale_after: 2027-03-12T00:00:00Z
 ---
+
 
 # FTS5 ICU Tokenizer - Scripts Reference
 

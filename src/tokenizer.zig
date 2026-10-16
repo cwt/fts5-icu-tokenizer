@@ -126,6 +126,21 @@ pub const max_text_len: usize = 128 * 1024 * 1024;
 // looping forever or silently dropping data.
 const max_translit_retries: u32 = 8;
 
+// Bug #37: grow an optional heap fallback buffer. Whether to `alloc` or
+// `realloc` must be decided from the buffer's CURRENT state, never from a flag
+// computed before a retry loop: a flag like "started on the stack" stays true
+// on later iterations, so a second overflow would `alloc` over (and leak) the
+// heap buffer the first overflow had already installed. On failure `slot` is
+// left untouched, so the caller's `defer free` still owns the old buffer
+// exactly once (no double free, bug #8).
+fn growHeapBuf(comptime T: type, allocator: std.mem.Allocator, slot: *?[]T, need: usize) !void {
+    if (slot.*) |old| {
+        slot.* = try allocator.realloc(old, need);
+    } else {
+        slot.* = try allocator.alloc(T, need);
+    }
+}
+
 pub fn transliterateString(allocator: std.mem.Allocator, input: []const u8, rule_str: []const u8) ![]u8 {
     if (input.len > max_text_len) return error.TextTooLarge;
     // Bug #34: sniff each rule feature once instead of rescanning per branch.
@@ -627,13 +642,11 @@ pub fn tokenizeText(
         var norm_retries: u32 = 0;
         while (ts == c.U_BUFFER_OVERFLOW_ERROR and norm_retries < max_translit_retries) : (norm_retries += 1) {
             const need: usize = @as(usize, @intCast(tlen)) + 64;
-            if (use_stack) {
-                heap_norm = try allocator.alloc(c.UChar, need);
-                cur_norm = heap_norm.?;
-            } else {
-                heap_norm = try allocator.realloc(heap_norm.?, need);
-                cur_norm = heap_norm.?;
-            }
+            // Bug #37: branch on heap_norm's actual state (via growHeapBuf),
+            // not on the fixed `use_stack` flag, so a second overflow
+            // reallocs instead of leaking the first heap buffer.
+            try growHeapBuf(c.UChar, allocator, &heap_norm, need);
+            cur_norm = heap_norm.?;
             @memcpy(cur_norm[0..utf16_pos], utf16_text_buffer[0..utf16_pos]);
             if (uses_russian_bgn) premapRussianYat(cur_norm[0..utf16_pos]);
             cur_norm[utf16_pos] = 0;
@@ -1718,4 +1731,84 @@ test "tokenizeText ligature-inserted whitespace keeps ranges sane (bug #19)" {
     }
     // The last source word must not be lost to phantom-space misalignment.
     try std.testing.expect(found_z);
+}
+
+// Bug #37: the pre-transliteration retry loop chose `alloc` vs `realloc` from
+// a flag fixed before the loop ("started on the stack"), so a SECOND overflow
+// `alloc`ed over the buffer the first one had installed and leaked it. The
+// real ICU reports the exact size on the first overflow, so this path cannot
+// be provoked end to end; the decision now lives in `growHeapBuf`, which is
+// tested directly. The testing allocator fails the test on any leaked
+// intermediate buffer.
+test "growHeapBuf grows repeatedly without leaking (bug #37)" {
+    const gpa = std.testing.allocator;
+
+    var slot: ?[]c.UChar = null;
+    defer if (slot) |buf| gpa.free(buf);
+
+    // First growth starts from "no heap buffer yet" (stack-start case).
+    try growHeapBuf(c.UChar, gpa, &slot, 100);
+    try std.testing.expectEqual(@as(usize, 100), slot.?.len);
+    @memset(slot.?, 0x41);
+
+    // Second and third growth must realloc the existing buffer, not alloc a
+    // new one over it.
+    try growHeapBuf(c.UChar, gpa, &slot, 400);
+    try std.testing.expectEqual(@as(usize, 400), slot.?.len);
+    try std.testing.expectEqual(@as(c.UChar, 0x41), slot.?[99]); // realloc preserves contents
+
+    try growHeapBuf(c.UChar, gpa, &slot, 1600);
+    try std.testing.expectEqual(@as(usize, 1600), slot.?.len);
+}
+
+test "growHeapBuf leaves the slot intact on OutOfMemory (bug #37)" {
+    var slot: ?[]u8 = null;
+    // fail_index = 1: the first allocation succeeds, the next one fails.
+    // resize_fail_index = 0: in-place resize/remap is refused, so the realloc
+    // must fall back to a (failing) allocation.
+    var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{
+        .fail_index = 1,
+        .resize_fail_index = 0,
+    });
+    const fa = failing.allocator();
+    defer if (slot) |buf| std.testing.allocator.free(buf);
+
+    try growHeapBuf(u8, fa, &slot, 64);
+    const before = slot.?;
+
+    try std.testing.expectError(error.OutOfMemory, growHeapBuf(u8, fa, &slot, 4096));
+    // The old buffer is still the slot's, so the single `defer free` above
+    // releases it exactly once (no leak, no double free).
+    try std.testing.expectEqual(before.ptr, slot.?.ptr);
+    try std.testing.expectEqual(@as(usize, 64), slot.?.len);
+}
+
+// Bug #37: end-to-end guard for the real overflow path. 100 x U+FDFA starts on
+// the stack buffer (utf16_pos * 3 + 64 fits) but NFKD expands each one to 18
+// UTF-16 units (1800 > the 1536-unit stack buffer), forcing the move to heap.
+// Must succeed, keep the trailing word, and leak nothing.
+test "tokenizeText stack-start normalization overflow does not leak (bug #37)" {
+    const gpa = std.testing.allocator;
+
+    const tok = try IcuTokenizer.create(gpa, "");
+    defer tok.destroy(gpa);
+
+    var text: std.ArrayList(u8) = .empty;
+    defer text.deinit(gpa);
+    for (0..100) |_| try text.appendSlice(gpa, "\u{FDFA}");
+    try text.appendSlice(gpa, " tail");
+
+    var cap: Capture = .{ .gpa = gpa, .tokens = .empty };
+    defer {
+        for (cap.tokens.items) |t| gpa.free(t);
+        cap.tokens.deinit(gpa);
+    }
+    const rc = try tokenizeText(gpa, tok, text.items, null, &cap, captureTokenCallback);
+    try std.testing.expectEqual(@as(c_int, c.SQLITE_OK), rc);
+
+    var found_tail = false;
+    for (cap.tokens.items) |t| {
+        if (std.mem.eql(u8, t, "tail")) found_tail = true;
+    }
+    try std.testing.expect(found_tail);
 }

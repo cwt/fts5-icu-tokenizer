@@ -7,7 +7,7 @@ sources:
   - docs/bugs/
 verified: human-reviewed
 tags: [bugs, tracker, index, issues]
-timestamp: 2026-10-16T22:01:00+07:00
+timestamp: 2026-10-16T22:16:02+07:00
 ---
 
 # Bugs — fts5-icu-tokenizer
@@ -42,7 +42,7 @@ review & deep code audit).
 | Second pass, probe-driven (ICU 78 + 67.1.0) | #14–#18 | All FIXED |
 | Third pass, probe-driven (ICU 78) | #19–#25 | All FIXED |
 | Follow-up deep audit (2026-09-12) | #26–#35 | All FIXED |
-| Fifth pass, deep code audit (2026-10-16) | #36–#43 | #36 FIXED, #37–#43 OPEN |
+| Fifth pass, deep code audit (2026-10-16) | #36–#43 | #36–#37 FIXED, #38–#43 OPEN |
 
 | Severity | Count |
 |---|---:|
@@ -91,7 +91,7 @@ review & deep code audit).
 | [34](034.md) | Unfactored duplication across tokenizer, resolvers, build | LOW | Fixed |
 | [35](035.md) | 16-byte language buffer rejects long language subtags | LOW | Fixed |
 | [36](036.md) | Leak of buf_with_nul on u_strToUTF8 failure in transliterateString | LOW | Fixed |
-| [37](037.md) | Memory leak in tokenizeText pre-transliteration retry loop when use_stack is true | HIGH | Open |
+| [37](037.md) | Memory leak in tokenizeText pre-transliteration retry loop when use_stack is true | HIGH | Fixed |
 | [38](038.md) | Signed i32 arithmetic overflow on buffer growth calculations | MEDIUM | Open |
 | [39](039.md) | CacheMutex spinlock contention and fallible Thread.yield | LOW | Open |
 | [40](040.md) | Double UTF-8 decode pass and duplicated decoder in tokenizeText | MEDIUM | Open |

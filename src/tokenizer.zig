@@ -17,14 +17,23 @@ const has_ubrk_clone = icu.has_ubrk_clone;
 const CacheMutex = struct {
     state: std.atomic.Value(u8) = std.atomic.Value(u8).init(0),
 
-    fn lock(m: *CacheMutex) !void {
+    // Bug #39: test-and-test-and-set. Waiters spin on a plain relaxed LOAD
+    // (the cache line stays shared across cores) and only attempt the atomic
+    // read-modify-write once the lock looks free; a strong cmpxchg on every
+    // iteration kept stealing the line exclusively from the holder.
+    // cmpxchgWeak is enough because a spurious failure just loops again.
+    // Infallible: if the OS refuses to yield (error.SystemCannotYield) we keep
+    // spinning instead of failing the whole tokenizeText call.
+    fn lock(m: *CacheMutex) void {
         var spins: usize = 0;
-        while (m.state.cmpxchgStrong(0, 1, .acquire, .monotonic) != null) {
+        while (true) {
+            if (m.state.load(.monotonic) == 0 and
+                m.state.cmpxchgWeak(0, 1, .acquire, .monotonic) == null) return;
             if (spins < 1000) {
                 std.atomic.spinLoopHint();
                 spins += 1;
             } else {
-                try std.Thread.yield();
+                std.Thread.yield() catch std.atomic.spinLoopHint();
             }
         }
     }
@@ -524,7 +533,7 @@ pub fn tokenizeText(
 
     if (override_locale) |loc| {
         if (loc.len > 0 and !std.mem.eql(u8, loc, tokenizer.locale_slice)) {
-            try tokenizer.cache_mutex.lock();
+            tokenizer.cache_mutex.lock();
             cache_locked = true;
 
             const hit = if (tokenizer.cached_locale) |cl| std.mem.eql(u8, cl, loc) else false;
@@ -1999,4 +2008,83 @@ test "convertUtf8ToUtf16Tolerant never writes past either output (bug #40)" {
     n = convertUtf8ToUtf16Tolerant(&wide, &short_map, "abcd");
     try std.testing.expectEqual(@as(usize, 2), n);
     try std.testing.expectEqualSlices(i32, &.{ 0, 1 }, &short_map);
+}
+
+// Bug #39: CacheMutex.lock must be infallible (a failing Thread.yield used to
+// abort tokenizeText with SQLITE_ERROR) and still provide mutual exclusion.
+// `m.lock();` below compiles only if lock() returns void — had it stayed an
+// error union, the discarded error would be a compile error. The counter is a
+// plain (non-atomic) usize, so any lost update from a broken lock shows up as
+// a wrong total.
+test "CacheMutex is infallible and provides mutual exclusion (bug #39)" {
+    const Shared = struct {
+        mutex: CacheMutex = .{},
+        counter: usize = 0,
+
+        fn worker(self: *@This(), iterations: usize) void {
+            for (0..iterations) |_| {
+                self.mutex.lock();
+                // Deliberately non-atomic read-modify-write inside the lock.
+                const v = self.counter;
+                std.atomic.spinLoopHint();
+                self.counter = v + 1;
+                self.mutex.unlock();
+            }
+        }
+    };
+
+    var shared: Shared = .{};
+    const n_threads = 8;
+    const iterations = 5000;
+
+    var threads: [n_threads]std.Thread = undefined;
+    for (&threads) |*t| {
+        t.* = try std.Thread.spawn(.{}, Shared.worker, .{ &shared, iterations });
+    }
+    for (threads) |t| t.join();
+
+    try std.testing.expectEqual(@as(usize, n_threads * iterations), shared.counter);
+    // Lock is released at the end: an uncontended acquire succeeds at once.
+    shared.mutex.lock();
+    shared.mutex.unlock();
+}
+
+// Bug #39: end-to-end — the infallible lock sits on the query-time
+// override-locale path of tokenizeText. Alternating overrides force cache
+// misses and evictions while threads contend for the lock; every call must
+// succeed (no spurious SQLITE_ERROR from the lock) and nothing may leak.
+test "concurrent override-locale tokenizeText contends on the cache lock (bug #39)" {
+    const gpa = std.testing.allocator;
+
+    const tok = try IcuTokenizer.create(gpa, "");
+    defer tok.destroy(gpa);
+
+    var errors: std.atomic.Value(usize) = .init(0);
+    const Ctx = struct {
+        tokenizer: *IcuTokenizer,
+        errors: *std.atomic.Value(usize),
+        fn worker(self: @This(), first_override: []const u8, second_override: []const u8) void {
+            for (0..10) |i| {
+                const loc = if (i % 2 == 0) first_override else second_override;
+                const rc = tokenizeText(
+                    std.heap.c_allocator,
+                    self.tokenizer,
+                    "русский текст 日本語のテスト text",
+                    loc,
+                    null,
+                    dummyTokenCallback,
+                ) catch c.SQLITE_ERROR;
+                if (rc != c.SQLITE_OK) _ = self.errors.fetchAdd(1, .monotonic);
+            }
+        }
+    };
+
+    var threads: [6]std.Thread = undefined;
+    for (&threads, 0..) |*t, i| {
+        const a: []const u8 = if (i % 2 == 0) "ru" else "ja";
+        const b: []const u8 = if (i % 2 == 0) "ja" else "ru";
+        t.* = try std.Thread.spawn(.{}, Ctx.worker, .{ Ctx{ .tokenizer = tok, .errors = &errors }, a, b });
+    }
+    for (threads) |t| t.join();
+    try std.testing.expectEqual(@as(usize, 0), errors.load(.monotonic));
 }

@@ -15,6 +15,9 @@ else
     exit 1
 fi
 
+# Bug #33/#43: track failures so the script exits non-zero when any test fails
+FAILED=0
+
 # Detect shared library extension
 case "$(uname -s)" in
     Darwin) LIB_EXT=dylib ;;
@@ -50,8 +53,9 @@ echo "=================================================="
 if [ -f "./zig-out/lib/libfts5_icu_legacy.${LIB_EXT}" ]; then
     # Replace the library name in the SQL file to point to the legacy version in zig-out
     sed -E 's|\./zig-out/lib/libfts5_icu|\./zig-out/lib/libfts5_icu_legacy|g' ./tests/test_universal_tokenizer.sql | $SQLITE3
-    if [ $? -ne 0 ]; then
+    if [ "${PIPESTATUS[1]}" -ne 0 ]; then
         echo "ERROR: Test failed for universal tokenizer (API v1)"
+        FAILED=1
     else
         echo "SUCCESS: Universal tokenizer test completed (API v1)"
     fi
@@ -91,8 +95,9 @@ for test_case in "${TEST_CASES[@]}"; do
         if [ -f "./$test_script" ]; then
             # Replace the library name in the SQL file to point to the legacy version in zig-out
             sed -E "s|\./zig-out/lib/libfts5_icu_${locale}|\./zig-out/lib/libfts5_icu_${locale}_legacy|g" "./$test_script" | $SQLITE3
-            if [ $? -ne 0 ]; then
+            if [ "${PIPESTATUS[1]}" -ne 0 ]; then
                 echo "ERROR: Test failed for $locale tokenizer (API v1)"
+                FAILED=1
             else
                 echo "SUCCESS: $locale tokenizer test completed (API v1)"
             fi
@@ -116,6 +121,17 @@ echo "==========================================================================
 
 if [ -f "./zig-out/lib/libfts5_icu_legacy.${LIB_EXT}" ]; then
     sed -E 's|\./zig-out/lib/libfts5_icu|\./zig-out/lib/libfts5_icu_legacy|g' ./tests/test_universal_with_th_zh.sql | $SQLITE3 | sed -e 's/|/ /g'  # format output for readability
+    if [ "${PIPESTATUS[1]}" -ne 0 ]; then
+        echo "ERROR: Test failed for TH/ZH on universal tokenizer (API v1)"
+        FAILED=1
+    else
+        echo "SUCCESS: TH/ZH on universal tokenizer test completed (API v1)"
+    fi
 else
     echo "WARNING: Universal tokenizer library (API v1) not found, skipping TH/ZH test"
+fi
+
+if [ "${FAILED}" -ne 0 ]; then
+    echo "FAILURES DETECTED"
+    exit 1
 fi

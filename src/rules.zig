@@ -20,6 +20,21 @@ pub const ICU_RULE_DEFAULT = ICU_RULE_BASE ++ "Arabic-Latin; Russian-Latin/BGN; 
     "Greek-Latin; Latin-ASCII; Traditional-Simplified; " ++
     "Hiragana-Katakana; Lower; NFKC";
 
+pub const RuleFeatures = struct {
+    uses_russian_bgn: bool,
+    uses_ar_he_latin: bool,
+};
+
+// Bug #42: single function for sniffing rule string features (Russian-Latin/BGN
+// and Arabic/Hebrew Latinization). Shared by infoFor and transliterateString.
+pub fn sniffRuleFeatures(rule_set: []const u8) RuleFeatures {
+    return .{
+        .uses_russian_bgn = std.mem.indexOf(u8, rule_set, "Russian-Latin/BGN") != null,
+        .uses_ar_he_latin = std.mem.indexOf(u8, rule_set, "Arabic-Latin") != null or
+            std.mem.indexOf(u8, rule_set, "Hebrew-Latin") != null,
+    };
+}
+
 pub const LocaleInfo = struct {
     rules: []const u8,
     tokenizer_name: []const u8,
@@ -30,18 +45,31 @@ pub const LocaleInfo = struct {
 };
 
 fn infoFor(rule_set: []const u8, name: []const u8) LocaleInfo {
+    const feat = sniffRuleFeatures(rule_set);
     return .{
         .rules = rule_set,
         .tokenizer_name = name,
-        .uses_russian_bgn = std.mem.indexOf(u8, rule_set, "Russian-Latin/BGN") != null,
-        .uses_ar_he_latin = std.mem.indexOf(u8, rule_set, "Arabic-Latin") != null or
-            std.mem.indexOf(u8, rule_set, "Hebrew-Latin") != null,
+        .uses_russian_bgn = feat.uses_russian_bgn,
+        .uses_ar_he_latin = feat.uses_ar_he_latin,
     };
 }
 
 // Case-insensitive equality for a language subtag.
 fn langEql(a: []const u8, b: []const u8) bool {
     return a.len == b.len and std.ascii.eqlIgnoreCase(a, b);
+}
+
+// Bug #42: canonical list of 13 supported locale language codes and aliases.
+// Shared between rules.getLocaleInfo and tokenizer.isValidLocaleLanguage.
+pub const supported_aliases = [_][]const u8{
+    "ja", "jp", "zh", "cn", "th", "ko", "kr", "ar", "ru", "he", "iw", "el", "gr",
+};
+
+pub fn isSupportedLanguageAlias(lang: []const u8) bool {
+    for (supported_aliases) |a| {
+        if (langEql(lang, a)) return true;
+    }
+    return false;
 }
 
 pub fn getLocaleInfo(locale: []const u8) LocaleInfo {
@@ -144,4 +172,41 @@ test "rules use Russian-Latin/BGN for Russian (bug #14)" {
     try std.testing.expect(std.mem.indexOf(u8, ICU_RULE_DEFAULT, "Russian-Latin/BGN") != null);
     try std.testing.expect(std.mem.indexOf(u8, ICU_RULE_RU, "Cyrillic-Latin") == null);
     try std.testing.expect(std.mem.indexOf(u8, ICU_RULE_DEFAULT, "Cyrillic-Latin") == null);
+}
+
+// Bug #42: tests for factored sniffRuleFeatures and isSupportedLanguageAlias helpers.
+test "sniffRuleFeatures detects Russian BGN and Arabic/Hebrew Latinization (bug #42)" {
+    const f_ru = sniffRuleFeatures(ICU_RULE_RU);
+    try std.testing.expect(f_ru.uses_russian_bgn);
+    try std.testing.expect(!f_ru.uses_ar_he_latin);
+
+    const f_ar = sniffRuleFeatures(ICU_RULE_AR);
+    try std.testing.expect(f_ar.uses_ar_he_latin);
+    try std.testing.expect(!f_ar.uses_russian_bgn);
+
+    const f_he = sniffRuleFeatures(ICU_RULE_HE);
+    try std.testing.expect(f_he.uses_ar_he_latin);
+    try std.testing.expect(!f_he.uses_russian_bgn);
+
+    const f_ja = sniffRuleFeatures(ICU_RULE_JA);
+    try std.testing.expect(!f_ja.uses_russian_bgn);
+    try std.testing.expect(!f_ja.uses_ar_he_latin);
+
+    const f_uni = sniffRuleFeatures(ICU_RULE_DEFAULT);
+    try std.testing.expect(f_uni.uses_russian_bgn);
+    try std.testing.expect(f_uni.uses_ar_he_latin);
+}
+
+test "isSupportedLanguageAlias recognizes all 13 aliases case-insensitively (bug #42)" {
+    for (supported_aliases) |alias| {
+        try std.testing.expect(isSupportedLanguageAlias(alias));
+    }
+    try std.testing.expect(isSupportedLanguageAlias("JA"));
+    try std.testing.expect(isSupportedLanguageAlias("Ru"));
+    try std.testing.expect(isSupportedLanguageAlias("ZH"));
+
+    try std.testing.expect(!isSupportedLanguageAlias("en"));
+    try std.testing.expect(!isSupportedLanguageAlias("fr"));
+    try std.testing.expect(!isSupportedLanguageAlias("de"));
+    try std.testing.expect(!isSupportedLanguageAlias(""));
 }

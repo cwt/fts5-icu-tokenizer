@@ -166,10 +166,10 @@ fn grownLen(len: i32, headroom: usize) error{TextTooLarge}!usize {
 
 pub fn transliterateString(allocator: std.mem.Allocator, input: []const u8, rule_str: []const u8) ![]u8 {
     if (input.len > max_text_len) return error.TextTooLarge;
-    // Bug #34: sniff each rule feature once instead of rescanning per branch.
-    const wants_russian_bgn = std.mem.indexOf(u8, rule_str, "Russian-Latin/BGN") != null;
-    const wants_ar_he_latin = std.mem.indexOf(u8, rule_str, "Arabic-Latin") != null or
-        std.mem.indexOf(u8, rule_str, "Hebrew-Latin") != null;
+    // Bug #34/#42: sniff rule features via rules.sniffRuleFeatures.
+    const rule_feats = rules.sniffRuleFeatures(rule_str);
+    const wants_russian_bgn = rule_feats.uses_russian_bgn;
+    const wants_ar_he_latin = rule_feats.uses_ar_he_latin;
     var status: c.UErrorCode = c.U_ZERO_ERROR;
 
     const rules_u16 = try utf8ToUtf16Alloc(allocator, rule_str);
@@ -468,12 +468,9 @@ fn isValidLocaleLanguage(locale_c: [*:0]const u8) bool {
     if (c.U_FAILURE(st) or n < 0 or @as(usize, @intCast(n)) > lang_buf.len) return false;
     const lang = lang_buf[0..@intCast(n)];
 
-    // Bug #41: "en" is by far the most common language and would otherwise
-    // pay the full uloc_getAvailable scan below.
-    const aliases = [_][]const u8{ "ja", "jp", "zh", "cn", "th", "ko", "kr", "ar", "ru", "he", "iw", "el", "gr", "en" };
-    for (aliases) |a| {
-        if (std.mem.eql(u8, lang, a)) return true;
-    }
+    // Bug #41/#42: check the 13 supported aliases via rules.isSupportedLanguageAlias,
+    // plus "en" as a fast-path to skip the uloc_getAvailable scan below.
+    if (rules.isSupportedLanguageAlias(lang) or std.mem.eql(u8, lang, "en")) return true;
 
     const count = icu.uloc_countAvailable();
     var i: i32 = 0;
@@ -839,13 +836,9 @@ pub fn tokenizeText(
         // overflows into the checked retry path instead of an unchecked cast).
         const reqDest = @min(nSrc * 4 + 64, std.math.maxInt(i32));
         if (destBuf.len < reqDest) {
-            if (heap_dest) |hd| {
-                heap_dest = try allocator.realloc(hd, reqDest);
-                destBuf = heap_dest.?;
-            } else {
-                heap_dest = try allocator.alloc(u8, reqDest);
-                destBuf = heap_dest.?;
-            }
+            // Bug #42: reuse growHeapBuf helper
+            try growHeapBuf(u8, allocator, &heap_dest, reqDest);
+            destBuf = heap_dest.?;
         }
 
         var conv_status: c.UErrorCode = c.U_ZERO_ERROR;
@@ -854,13 +847,9 @@ pub fn tokenizeText(
         while ((conv_status == c.U_BUFFER_OVERFLOW_ERROR or (c.U_FAILURE(conv_status) and utf8_len > @as(i32, @intCast(destBuf.len)))) and dest_retries < max_translit_retries) : (dest_retries += 1) {
             // Bug #38: widen before adding headroom; too-large fails loudly.
             const newDestSize = grownLen(utf8_len, 64) catch return c.SQLITE_TOOBIG;
-            if (heap_dest) |hd| {
-                heap_dest = try allocator.realloc(hd, newDestSize);
-                destBuf = heap_dest.?;
-            } else {
-                heap_dest = try allocator.alloc(u8, newDestSize);
-                destBuf = heap_dest.?;
-            }
+            // Bug #42: reuse growHeapBuf helper
+            try growHeapBuf(u8, allocator, &heap_dest, newDestSize);
+            destBuf = heap_dest.?;
             utf8_len = 0;
             conv_status = c.U_ZERO_ERROR;
             _ = icu.u_strToUTF8WithSub(destBuf.ptr, @intCast(destBuf.len), &utf8_len, normText[t_start..].ptr, @intCast(nSrc), 0xFFFD, null, &conv_status);

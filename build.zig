@@ -107,8 +107,8 @@ pub fn build(b: *std.Build) void {
 
     const linkModule = struct {
         fn apply(mod: *std.Build.Module, builder: *std.Build, macos: bool) void {
-            mod.addSystemIncludePath(.{ .cwd_relative = "/usr/include" });
-            mod.addSystemIncludePath(.{ .cwd_relative = "/usr/local/include" });
+            // Bug #42: reuse addIncludes instead of duplicating /usr/include and /usr/local/include.
+            addIncludes(mod, macos);
             addLibraryPaths(mod, builder, macos);
             mod.linkSystemLibrary("sqlite3", .{ .needed = true });
             mod.linkSystemLibrary("icui18n", .{ .needed = true });
@@ -125,53 +125,53 @@ pub fn build(b: *std.Build) void {
         }
     }.apply;
 
-    // Root module for FTS5 ICU universal tokenizer library (v2)
-    const root_module = b.createModule(.{
-        .root_source_file = b.path("src/fts5_icu.zig"),
-        .target = target,
-        .optimize = optimize,
-        .imports = &.{
-            .{ .name = "c", .module = c_mod },
-            .{ .name = "c_icu", .module = c_icu_mod },
-            .{ .name = "build_options", .module = options_mod },
-        },
-    });
-    linkModule(root_module, b, is_macos);
+    // Bug #42: helper for building and installing a tokenizer shared library
+    const addTokenizerLibrary = struct {
+        fn apply(
+            builder: *std.Build,
+            name: []const u8,
+            loc: []const u8,
+            api_ver: []const u8,
+            target_step: std.Build.ResolvedTarget,
+            opt: OptimizeMode,
+            c_m: *std.Build.Module,
+            c_icu_m: *std.Build.Module,
+            enable_lto: bool,
+            macos: bool,
+        ) void {
+            const opts = builder.addOptions();
+            opts.addOption([]const u8, "locale", loc);
+            opts.addOption([]const u8, "api_version", api_ver);
+            opts.addOption([]const u8, "version", version_str);
 
-    // Dynamic library build (fts5_icu)
-    const lib = b.addLibrary(.{
-        .linkage = .dynamic,
-        .name = if (locale.len > 0) b.fmt("fts5_icu_{s}", .{locale}) else "fts5_icu",
-        .root_module = root_module,
-    });
-    configureArtifact(lib, lto_enabled);
-    b.installArtifact(lib);
+            const root_mod = builder.createModule(.{
+                .root_source_file = builder.path("src/fts5_icu.zig"),
+                .target = target_step,
+                .optimize = opt,
+                .imports = &.{
+                    .{ .name = "c", .module = c_m },
+                    .{ .name = "c_icu", .module = c_icu_m },
+                    .{ .name = "build_options", .module = opts.createModule() },
+                },
+            });
+            linkModule(root_mod, builder, macos);
 
-    // Root module for FTS5 ICU universal tokenizer library (v1 legacy)
-    const legacy_options = b.addOptions();
-    legacy_options.addOption([]const u8, "locale", locale);
-    legacy_options.addOption([]const u8, "api_version", "v1");
-    legacy_options.addOption([]const u8, "version", version_str);
+            const dylib = builder.addLibrary(.{
+                .linkage = .dynamic,
+                .name = name,
+                .root_module = root_mod,
+            });
+            configureArtifact(dylib, enable_lto);
+            builder.installArtifact(dylib);
+        }
+    }.apply;
 
-    const legacy_root_module = b.createModule(.{
-        .root_source_file = b.path("src/fts5_icu.zig"),
-        .target = target,
-        .optimize = optimize,
-        .imports = &.{
-            .{ .name = "c", .module = c_mod },
-            .{ .name = "c_icu", .module = c_icu_mod },
-            .{ .name = "build_options", .module = legacy_options.createModule() },
-        },
-    });
-    linkModule(legacy_root_module, b, is_macos);
+    // Dynamic library build (fts5_icu v2 and v1 legacy)
+    const lib_name = if (locale.len > 0) b.fmt("fts5_icu_{s}", .{locale}) else "fts5_icu";
+    addTokenizerLibrary(b, lib_name, locale, api_version, target, optimize, c_mod, c_icu_mod, lto_enabled, is_macos);
 
-    const lib_legacy = b.addLibrary(.{
-        .linkage = .dynamic,
-        .name = if (locale.len > 0) b.fmt("fts5_icu_{s}_legacy", .{locale}) else "fts5_icu_legacy",
-        .root_module = legacy_root_module,
-    });
-    configureArtifact(lib_legacy, lto_enabled);
-    b.installArtifact(lib_legacy);
+    const lib_legacy_name = if (locale.len > 0) b.fmt("fts5_icu_{s}_legacy", .{locale}) else "fts5_icu_legacy";
+    addTokenizerLibrary(b, lib_legacy_name, locale, "v1", target, optimize, c_mod, c_icu_mod, lto_enabled, is_macos);
 
     // Build locale-specific libraries
     const locales = [_][]const u8{ "ja", "zh", "th", "ko", "ar", "ru", "he", "el" };
@@ -182,57 +182,8 @@ pub fn build(b: *std.Build) void {
         // would compile each artifact twice and install both to the same
         // zig-out/lib path (last install silently wins).
         if (locale.len > 0 and std.mem.eql(u8, loc, locale)) continue;
-        // v2
-        const loc_options = b.addOptions();
-        loc_options.addOption([]const u8, "locale", loc);
-        loc_options.addOption([]const u8, "api_version", "v2");
-        loc_options.addOption([]const u8, "version", version_str);
-
-        const loc_root = b.createModule(.{
-            .root_source_file = b.path("src/fts5_icu.zig"),
-            .target = target,
-            .optimize = optimize,
-            .imports = &.{
-                .{ .name = "c", .module = c_mod },
-                .{ .name = "c_icu", .module = c_icu_mod },
-                .{ .name = "build_options", .module = loc_options.createModule() },
-            },
-        });
-        linkModule(loc_root, b, is_macos);
-
-        const loc_lib = b.addLibrary(.{
-            .linkage = .dynamic,
-            .name = b.fmt("fts5_icu_{s}", .{loc}),
-            .root_module = loc_root,
-        });
-        configureArtifact(loc_lib, lto_enabled);
-        b.installArtifact(loc_lib);
-
-        // v1 legacy
-        const loc_leg_options = b.addOptions();
-        loc_leg_options.addOption([]const u8, "locale", loc);
-        loc_leg_options.addOption([]const u8, "api_version", "v1");
-        loc_leg_options.addOption([]const u8, "version", version_str);
-
-        const loc_leg_root = b.createModule(.{
-            .root_source_file = b.path("src/fts5_icu.zig"),
-            .target = target,
-            .optimize = optimize,
-            .imports = &.{
-                .{ .name = "c", .module = c_mod },
-                .{ .name = "c_icu", .module = c_icu_mod },
-                .{ .name = "build_options", .module = loc_leg_options.createModule() },
-            },
-        });
-        linkModule(loc_leg_root, b, is_macos);
-
-        const loc_leg_lib = b.addLibrary(.{
-            .linkage = .dynamic,
-            .name = b.fmt("fts5_icu_{s}_legacy", .{loc}),
-            .root_module = loc_leg_root,
-        });
-        configureArtifact(loc_leg_lib, lto_enabled);
-        b.installArtifact(loc_leg_lib);
+        addTokenizerLibrary(b, b.fmt("fts5_icu_{s}", .{loc}), loc, "v2", target, optimize, c_mod, c_icu_mod, lto_enabled, is_macos);
+        addTokenizerLibrary(b, b.fmt("fts5_icu_{s}_legacy", .{loc}), loc, "v1", target, optimize, c_mod, c_icu_mod, lto_enabled, is_macos);
     }
 
     // Unit tests
@@ -263,69 +214,46 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_unit_tests.step);
 
-    // Test executables: test_transliterator
-    const translit_mod = b.createModule(.{
-        .root_source_file = b.path("src/test_transliterator.zig"),
-        .target = target,
-        .optimize = optimize,
-        .imports = &.{
-            .{ .name = "c", .module = c_mod },
-            .{ .name = "c_icu", .module = c_icu_mod },
-        },
-    });
-    linkModule(translit_mod, b, is_macos);
+    // Bug #42: helper for compiling and registering test runner executables
+    const addTestRunner = struct {
+        fn apply(
+            builder: *std.Build,
+            name: []const u8,
+            source_file: []const u8,
+            step_name: []const u8,
+            step_desc: []const u8,
+            target_step: std.Build.ResolvedTarget,
+            opt: OptimizeMode,
+            c_m: *std.Build.Module,
+            c_icu_m: *std.Build.Module,
+            enable_lto: bool,
+            macos: bool,
+        ) void {
+            const mod = builder.createModule(.{
+                .root_source_file = builder.path(source_file),
+                .target = target_step,
+                .optimize = opt,
+                .imports = &.{
+                    .{ .name = "c", .module = c_m },
+                    .{ .name = "c_icu", .module = c_icu_m },
+                },
+            });
+            linkModule(mod, builder, macos);
 
-    const exe_translit = b.addExecutable(.{
-        .name = "test_transliterator",
-        .root_module = translit_mod,
-    });
-    configureArtifact(exe_translit, lto_enabled);
+            const exe = builder.addExecutable(.{
+                .name = name,
+                .root_module = mod,
+            });
+            configureArtifact(exe, enable_lto);
 
-    const run_translit = b.addRunArtifact(exe_translit);
-    const run_translit_step = b.step("run-transliterator", "Run ICU transliterator test");
-    run_translit_step.dependOn(&run_translit.step);
+            const run_cmd = builder.addRunArtifact(exe);
+            const step = builder.step(step_name, step_desc);
+            step.dependOn(&run_cmd.step);
+        }
+    }.apply;
 
-    // Test executables: locale_specific_tests
-    const locale_tests_mod = b.createModule(.{
-        .root_source_file = b.path("src/locale_specific_tests.zig"),
-        .target = target,
-        .optimize = optimize,
-        .imports = &.{
-            .{ .name = "c", .module = c_mod },
-            .{ .name = "c_icu", .module = c_icu_mod },
-        },
-    });
-    linkModule(locale_tests_mod, b, is_macos);
-
-    const exe_locale_tests = b.addExecutable(.{
-        .name = "locale_specific_tests",
-        .root_module = locale_tests_mod,
-    });
-    configureArtifact(exe_locale_tests, lto_enabled);
-
-    const run_locale_tests = b.addRunArtifact(exe_locale_tests);
-    const run_locale_tests_step = b.step("run-locale-tests", "Run locale-specific transliterator tests");
-    run_locale_tests_step.dependOn(&run_locale_tests.step);
-
-    // Test executables: test_locale_tokenizer
-    const tok_test_mod = b.createModule(.{
-        .root_source_file = b.path("src/test_locale_tokenizer.zig"),
-        .target = target,
-        .optimize = optimize,
-        .imports = &.{
-            .{ .name = "c", .module = c_mod },
-            .{ .name = "c_icu", .module = c_icu_mod },
-        },
-    });
-    linkModule(tok_test_mod, b, is_macos);
-
-    const exe_tok_test = b.addExecutable(.{
-        .name = "test_locale_tokenizer",
-        .root_module = tok_test_mod,
-    });
-    configureArtifact(exe_tok_test, lto_enabled);
-
-    const run_tok_test = b.addRunArtifact(exe_tok_test);
-    const run_tok_test_step = b.step("run-tokenizer-test", "Run locale tokenizer test");
-    run_tok_test_step.dependOn(&run_tok_test.step);
+    // Test executables
+    addTestRunner(b, "test_transliterator", "src/test_transliterator.zig", "run-transliterator", "Run ICU transliterator test", target, optimize, c_mod, c_icu_mod, lto_enabled, is_macos);
+    addTestRunner(b, "locale_specific_tests", "src/locale_specific_tests.zig", "run-locale-tests", "Run locale-specific transliterator tests", target, optimize, c_mod, c_icu_mod, lto_enabled, is_macos);
+    addTestRunner(b, "test_locale_tokenizer", "src/test_locale_tokenizer.zig", "run-tokenizer-test", "Run locale tokenizer test", target, optimize, c_mod, c_icu_mod, lto_enabled, is_macos);
 }

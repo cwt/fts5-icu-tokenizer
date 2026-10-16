@@ -391,6 +391,61 @@ fn fillSegment(pm: []i32, ns: usize, ne: usize, os: usize, oe: usize) void {
     }
 }
 
+// Bug #15/#19 position map, extracted from tokenizeText so it can be tested in
+// isolation. Fills `pm[0..norm.len + 1]` (normalized UTF-16 position ->
+// original UTF-16 position) by anchoring on whitespace and scaling
+// proportionally inside each space-delimited segment (the rationale for the
+// anchoring and the end-pairing of phantom spaces is in the bug #15 / #19
+// notes above the call in tokenizeText). `pm.len` must be at least
+// `norm.len + 1`.
+//
+// Bug #41: the original text's spaces only matter for counting phantom
+// (NFKD-inserted) normalized spaces. With zero normalized spaces there are no
+// anchors and no phantoms, so the whole original-text scan is skipped — the
+// common case for single words and CJK queries.
+fn fillPositionMap(pm: []i32, norm: []const c.UChar, orig: []const c.UChar) void {
+    const norm_len = norm.len;
+    const orig_len = orig.len;
+
+    var norm_space_total: usize = 0;
+    for (norm) |ch| {
+        if (isSpaceLikeU16(ch)) norm_space_total += 1;
+    }
+    var phantom_spaces: usize = 0;
+    if (norm_space_total > 0) {
+        var orig_space_total: usize = 0;
+        for (orig) |ch| {
+            if (isSpaceLikeU16(ch)) orig_space_total += 1;
+        }
+        if (norm_space_total > orig_space_total) phantom_spaces = norm_space_total - orig_space_total;
+    }
+
+    var seen_norm_spaces: usize = 0;
+    var orig_pos: usize = 0;
+    var seg_orig_start: usize = 0;
+    var seg_norm_start: usize = 0;
+    var i: usize = 0;
+    while (i < norm_len) : (i += 1) {
+        if (!isSpaceLikeU16(norm[i])) continue;
+        seen_norm_spaces += 1;
+        if (seen_norm_spaces <= phantom_spaces) continue;
+        while (orig_pos < orig_len and !isSpaceLikeU16(orig[orig_pos])) {
+            orig_pos += 1;
+        }
+        if (i > seg_norm_start) {
+            fillSegment(pm, seg_norm_start, i, seg_orig_start, orig_pos);
+        }
+        pm[i] = @intCast(orig_pos);
+        seg_orig_start = orig_pos + 1;
+        seg_norm_start = i + 1;
+        orig_pos += 1;
+    }
+    if (norm_len > seg_norm_start) {
+        fillSegment(pm, seg_norm_start, norm_len, seg_orig_start, orig_len);
+    }
+    pm[norm_len] = @intCast(orig_len);
+}
+
 // Bug #16: validate a locale string before handing it to ICU. `ubrk_open`
 // reports U_USING_FALLBACK_WARNING for EVERY non-empty locale — even valid
 // ones like "ja" or "ru_RU", because word-break data lives in root — so the
@@ -413,7 +468,9 @@ fn isValidLocaleLanguage(locale_c: [*:0]const u8) bool {
     if (c.U_FAILURE(st) or n < 0 or @as(usize, @intCast(n)) > lang_buf.len) return false;
     const lang = lang_buf[0..@intCast(n)];
 
-    const aliases = [_][]const u8{ "ja", "jp", "zh", "cn", "th", "ko", "kr", "ar", "ru", "he", "iw", "el", "gr" };
+    // Bug #41: "en" is by far the most common language and would otherwise
+    // pay the full uloc_getAvailable scan below.
+    const aliases = [_][]const u8{ "ja", "jp", "zh", "cn", "th", "ko", "kr", "ar", "ru", "he", "iw", "el", "gr", "en" };
     for (aliases) |a| {
         if (std.mem.eql(u8, lang, a)) return true;
     }
@@ -421,9 +478,19 @@ fn isValidLocaleLanguage(locale_c: [*:0]const u8) bool {
     const count = icu.uloc_countAvailable();
     var i: i32 = 0;
     while (i < count) : (i += 1) {
-        if (std.mem.eql(u8, lang, std.mem.span(icu.uloc_getAvailable(i)))) return true;
+        if (localeEntryHasLanguage(std.mem.span(icu.uloc_getAvailable(i)), lang)) return true;
     }
     return false;
+}
+
+// Bug #41: does an ICU locale identifier (as listed by uloc_getAvailable, e.g.
+// "en", "en_US", "zh_Hans_CN", "kok_IN") belong to language `lang`? Compares
+// the entry's language subtag — everything before the first '_' or '-' — so a
+// language ICU lists ONLY under regional identifiers (no bare "kok" entry) is
+// still recognized, while a mere string prefix is not ("kok_IN" is not "ko").
+fn localeEntryHasLanguage(entry: []const u8, lang: []const u8) bool {
+    const end = std.mem.findAny(u8, entry, "_-") orelse entry.len;
+    return std.mem.eql(u8, entry[0..end], lang);
 }
 
 // Bug #18: Arabic-Latin emits U+02BF (ʿ) and Hebrew-Latin can emit U+02BB (ʻ)
@@ -720,43 +787,7 @@ pub fn tokenizeText(
             heap_posmap = try allocator.alloc(i32, pm_cap);
             break :blk2 heap_posmap.?;
         };
-        var norm_space_total: usize = 0;
-        for (normText) |ch| {
-            if (isSpaceLikeU16(ch)) norm_space_total += 1;
-        }
-        var orig_space_total: usize = 0;
-        for (utf16_text_buffer[0..utf16_pos]) |ch| {
-            if (isSpaceLikeU16(ch)) orig_space_total += 1;
-        }
-        const phantom_spaces = if (norm_space_total > orig_space_total)
-            norm_space_total - orig_space_total
-        else
-            0;
-
-        var seen_norm_spaces: usize = 0;
-        var orig_pos: usize = 0;
-        var seg_orig_start: usize = 0;
-        var seg_norm_start: usize = 0;
-        var i: usize = 0;
-        while (i < norm_len) : (i += 1) {
-            if (!isSpaceLikeU16(normText[i])) continue;
-            seen_norm_spaces += 1;
-            if (seen_norm_spaces <= phantom_spaces) continue;
-            while (orig_pos < utf16_pos and !isSpaceLikeU16(utf16_text_buffer[orig_pos])) {
-                orig_pos += 1;
-            }
-            if (i > seg_norm_start) {
-                fillSegment(pm, seg_norm_start, i, seg_orig_start, orig_pos);
-            }
-            pm[i] = @intCast(orig_pos);
-            seg_orig_start = orig_pos + 1;
-            seg_norm_start = i + 1;
-            orig_pos += 1;
-        }
-        if (norm_len > seg_norm_start) {
-            fillSegment(pm, seg_norm_start, norm_len, seg_orig_start, utf16_pos);
-        }
-        pm[norm_len] = @intCast(utf16_pos);
+        fillPositionMap(pm, normText, utf16_text_buffer[0..utf16_pos]);
         position_map = pm;
     }
 
@@ -2087,4 +2118,100 @@ test "concurrent override-locale tokenizeText contends on the cache lock (bug #3
     }
     for (threads) |t| t.join();
     try std.testing.expectEqual(@as(usize, 0), errors.load(.monotonic));
+}
+
+// Bug #41 (1/2): isValidLocaleLanguage compared the bare language subtag with
+// the FULL identifiers from uloc_getAvailable ("en_US", "kok_IN", ...), so a
+// language ICU lists only under regional identifiers was rejected as invalid.
+// The comparison is now on each entry's own language subtag. A real ICU build
+// cannot be made to omit a bare entry, so the matcher is tested directly.
+test "localeEntryHasLanguage matches the language subtag, not a string prefix (bug #41)" {
+    // Bare and regional identifiers of the same language.
+    try std.testing.expect(localeEntryHasLanguage("en", "en"));
+    try std.testing.expect(localeEntryHasLanguage("en_US", "en"));
+    try std.testing.expect(localeEntryHasLanguage("zh_Hans_CN", "zh"));
+    try std.testing.expect(localeEntryHasLanguage("en-US", "en"));
+
+    // The regional-only case from the bug: no bare "kok" entry exists.
+    try std.testing.expect(localeEntryHasLanguage("kok_IN", "kok"));
+
+    // A string prefix that is not the whole language subtag must not match.
+    try std.testing.expect(!localeEntryHasLanguage("kok_IN", "ko"));
+    try std.testing.expect(!localeEntryHasLanguage("kok", "ko"));
+    try std.testing.expect(!localeEntryHasLanguage("en_US", "e"));
+    try std.testing.expect(!localeEntryHasLanguage("fr_FR", "en"));
+    try std.testing.expect(!localeEntryHasLanguage("", "en"));
+}
+
+test "isValidLocaleLanguage accepts real languages and rejects typos (bug #41)" {
+    const valid = [_][:0]const u8{ "", "en", "en_US", "fr", "fr_CA", "de_DE", "es", "ja", "zh_Hans_CN", "ru_RU", "kok", "C" };
+    for (valid) |loc| {
+        try std.testing.expect(isValidLocaleLanguage(loc.ptr));
+    }
+    const invalid = [_][:0]const u8{ "xx_YY", "zzz", "qq", "notalocale" };
+    for (invalid) |loc| {
+        try std.testing.expect(!isValidLocaleLanguage(loc.ptr));
+    }
+}
+
+// Bug #41 (2/2) + bugs #15/#19: fillPositionMap is the position-map algorithm
+// extracted from tokenizeText. The tests pin its exact output, including the
+// case #41 optimizes (no normalized spaces -> original text not scanned).
+fn u16lit(comptime s: []const u8) [s.len]c.UChar {
+    var out: [s.len]c.UChar = undefined;
+    for (s, 0..) |b, i| out[i] = b;
+    return out;
+}
+
+test "fillPositionMap without spaces scales proportionally (bug #41)" {
+    // Ligature-like 1 -> 2 expansion, no spaces anywhere: the fast path that
+    // skips the original-text space scan must still map exactly.
+    const orig = [_]c.UChar{0xFB01}; // U+FB01 (fi ligature)
+    const norm = u16lit("fi");
+    var pm: [norm.len + 1]i32 = undefined;
+    fillPositionMap(&pm, &norm, &orig);
+    try std.testing.expectEqualSlices(i32, &.{ 0, 1, 1 }, &pm);
+
+    // Identity mapping for a space-free word.
+    const word = u16lit("hello");
+    var pm2: [word.len + 1]i32 = undefined;
+    fillPositionMap(&pm2, &word, &word);
+    try std.testing.expectEqualSlices(i32, &.{ 0, 1, 2, 3, 4, 5 }, &pm2);
+
+    // Empty text.
+    var pm3: [1]i32 = undefined;
+    fillPositionMap(&pm3, &.{}, &.{});
+    try std.testing.expectEqualSlices(i32, &.{0}, &pm3);
+
+    // Space-free normalized text from a NON-empty original that contains
+    // spaces (original longer than normalized): spaces in the original must
+    // not influence the result when there are no normalized anchors.
+    const orig_sp = u16lit("a b");
+    const norm_nosp = u16lit("ab");
+    var pm4: [norm_nosp.len + 1]i32 = undefined;
+    fillPositionMap(&pm4, &norm_nosp, &orig_sp);
+    try std.testing.expectEqualSlices(i32, &.{ 0, 2, 3 }, &pm4);
+}
+
+test "fillPositionMap anchors on whitespace and end-pairs phantom spaces (bugs #15/#19, #41)" {
+    // 1:1 text with spaces maps to itself (whitespace anchors are exact).
+    const same = u16lit("ab cd");
+    var pm: [same.len + 1]i32 = undefined;
+    fillPositionMap(&pm, &same, &same);
+    try std.testing.expectEqualSlices(i32, &.{ 0, 1, 2, 3, 4, 5 }, &pm);
+
+    // Phantom spaces: the source has one real space, but expansion of the
+    // placeholder 'F' inserted two more in the normalized text. The two
+    // phantom (leading) normalized spaces are skipped; the LAST normalized
+    // space pairs with the real one, so the trailing word keeps its range.
+    //   orig: x F y _ z            (5 units, space at 3)
+    //   norm: x a _ b _ y _ z      (8 units, spaces at 2, 4, 6)
+    const orig = u16lit("xFy z");
+    const norm = u16lit("xa b y z");
+    var pm2: [norm.len + 1]i32 = undefined;
+    fillPositionMap(&pm2, &norm, &orig);
+    try std.testing.expectEqualSlices(i32, &.{ 0, 1, 1, 2, 2, 3, 3, 4, 5 }, &pm2);
+    // The final word "z" (norm 7..8) maps to exactly orig 4..5.
+    try std.testing.expectEqual(@as(i32, 4), pm2[7]);
+    try std.testing.expectEqual(@as(i32, 5), pm2[8]);
 }

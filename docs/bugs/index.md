@@ -7,7 +7,7 @@ sources:
   - docs/bugs/
 verified: human-reviewed
 tags: [bugs, tracker, index, issues]
-timestamp: 2026-10-16T22:17:27+07:00
+timestamp: 2026-10-16T22:20:27+07:00
 ---
 
 # Bugs — fts5-icu-tokenizer
@@ -42,7 +42,7 @@ review & deep code audit).
 | Second pass, probe-driven (ICU 78 + 67.1.0) | #14–#18 | All FIXED |
 | Third pass, probe-driven (ICU 78) | #19–#25 | All FIXED |
 | Follow-up deep audit (2026-09-12) | #26–#35 | All FIXED |
-| Fifth pass, deep code audit (2026-10-16) | #36–#43 | #36–#38 FIXED, #39–#43 OPEN |
+| Fifth pass, deep code audit (2026-10-16) | #36–#43 | #36–#38, #40 FIXED, #39, #41–#43 OPEN |
 
 | Severity | Count |
 |---|---:|
@@ -94,7 +94,7 @@ review & deep code audit).
 | [37](037.md) | Memory leak in tokenizeText pre-transliteration retry loop when use_stack is true | HIGH | Fixed |
 | [38](038.md) | Signed i32 arithmetic overflow on buffer growth calculations | MEDIUM | Fixed |
 | [39](039.md) | CacheMutex spinlock contention and fallible Thread.yield | LOW | Open |
-| [40](040.md) | Double UTF-8 decode pass and duplicated decoder in tokenizeText | MEDIUM | Open |
+| [40](040.md) | Double UTF-8 decode pass and duplicated decoder in tokenizeText | MEDIUM | Fixed |
 | [41](041.md) | isValidLocaleLanguage misses regional-only ICU locales and redundant orig_space_total scan | LOW | Open |
 | [42](042.md) | Remaining code duplication across rules.zig, tokenizer.zig, and build.zig | LOW | Open |
 | [43](043.md) | Test harness defects in test_all_legacy.sh, lint-check.sh, and test_universal_tokenizer.sql | LOW | Open |

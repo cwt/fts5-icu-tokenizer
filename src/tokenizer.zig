@@ -270,56 +270,67 @@ pub fn transliterateString(allocator: std.mem.Allocator, input: []const u8, rule
     return shrunk;
 }
 
-// Build the UTF-8 byte-offset map (utf16 index -> utf8 start byte) for `text`.
-// Tolerant of malformed UTF-8 (substitutes U+FFFD), so it matches the std
-// converter's output for valid input and degrades gracefully otherwise.
-fn buildByteOffsetMap(map: []i32, text: []const u8) void {
-    var utf8_pos: usize = 0;
-    var u: usize = 0;
-    while (utf8_pos < text.len and u < map.len) {
-        const orig_utf8 = utf8_pos;
-        const cp_len = std.unicode.utf8ByteSequenceLength(text[utf8_pos]) catch 1;
-        const end = @min(utf8_pos + cp_len, text.len);
-        const cp = std.unicode.utf8Decode(text[utf8_pos..end]) catch 0xFFFD;
-        utf8_pos = end;
-        const units: usize = if (cp <= 0xFFFF) 1 else 2;
-        if (u < map.len) map[u] = @intCast(orig_utf8);
-        if (cp > 0xFFFF and u + 1 < map.len) map[u + 1] = @intCast(orig_utf8);
-        u += units;
-    }
-}
-
-// Tolerant manual UTF-8 -> UTF-16 conversion (substitutes U+FFFD for invalid
-// sequences). Fills both the UTF-16 buffer and the byte-offset map; returns the
-// number of UTF-16 units written. Used as a fallback when
-// std.unicode.utf8ToUtf16Le rejects malformed input.
+// Bug #40: single-pass, tolerant UTF-8 -> UTF-16 conversion that also fills the
+// byte-offset map (utf16 index -> utf8 start byte; both units of a surrogate
+// pair map to the pair's first byte). For valid UTF-8 the output is identical
+// to std.unicode.utf8ToUtf16Le. This replaces the former "utf8ToUtf16Le, then
+// re-decode the whole text again in buildByteOffsetMap" hot path (every valid
+// document was decoded twice) and the duplicated decoder loop between those
+// two functions. Pure-ASCII runs take a tight 1-byte -> 1-unit loop with no
+// per-character decoding.
+//
+// Malformed input is tolerated exactly as before: an invalid or truncated
+// multi-byte sequence becomes one U+FFFD, while a lone byte that cannot start
+// a sequence (0x80..0xBF, 0xF8..0xFF) keeps its byte value as a codepoint
+// (std's utf8Decode returns a 1-byte slice unchecked).
+// Returns the number of UTF-16 units written.
 fn convertUtf8ToUtf16Tolerant(
     utf16_buf: []c.UChar,
     map: []i32,
     text: []const u8,
 ) usize {
+    // Never write past either output, whatever sizes the caller passed.
+    const cap = @min(utf16_buf.len, map.len);
     var utf16_pos: usize = 0;
     var utf8_pos: usize = 0;
-    while (utf8_pos < text.len and utf16_pos < utf16_buf.len) {
+    while (utf8_pos < text.len and utf16_pos < cap) {
+        if (text[utf8_pos] < 0x80) {
+            // ASCII fast path: consume the whole run that fits.
+            const run_max = @min(text.len - utf8_pos, cap - utf16_pos);
+            var n: usize = 0;
+            while (n < run_max and text[utf8_pos + n] < 0x80) : (n += 1) {
+                utf16_buf[utf16_pos + n] = text[utf8_pos + n];
+                map[utf16_pos + n] = @intCast(utf8_pos + n);
+            }
+            utf16_pos += n;
+            utf8_pos += n;
+            continue;
+        }
+
         const orig_utf8 = utf8_pos;
         const cp_len = std.unicode.utf8ByteSequenceLength(text[utf8_pos]) catch 1;
         const end = @min(utf8_pos + cp_len, text.len);
-        const cp = std.unicode.utf8Decode(text[utf8_pos..end]) catch 0xFFFD;
+        // A sequence cut off by the end of the text is shorter than its lead
+        // byte promises; std's utf8Decode2/3/4 assert on that (panic in Debug
+        // and ReleaseSafe), so substitute U+FFFD instead of decoding it.
+        const cp: u21 = if (end - utf8_pos == cp_len)
+            std.unicode.utf8Decode(text[utf8_pos..end]) catch 0xFFFD
+        else
+            0xFFFD;
         utf8_pos = end;
 
-        const orig_utf16 = utf16_pos;
         if (cp <= 0xFFFF) {
             utf16_buf[utf16_pos] = @intCast(cp);
+            map[utf16_pos] = @intCast(orig_utf8);
             utf16_pos += 1;
         } else {
-            if (utf16_pos + 2 > utf16_buf.len) break;
+            if (utf16_pos + 2 > cap) break;
             utf16_buf[utf16_pos] = @intCast(0xD800 + ((cp - 0x10000) >> 10));
             utf16_buf[utf16_pos + 1] = @intCast(0xDC00 + ((cp - 0x10000) & 0x3FF));
+            map[utf16_pos] = @intCast(orig_utf8);
+            map[utf16_pos + 1] = @intCast(orig_utf8);
             utf16_pos += 2;
         }
-
-        if (orig_utf16 < map.len) map[orig_utf16] = @intCast(orig_utf8);
-        if (cp > 0xFFFF and orig_utf16 + 1 < map.len) map[orig_utf16 + 1] = @intCast(orig_utf8);
     }
     return utf16_pos;
 }
@@ -476,14 +487,9 @@ pub fn tokenizeText(
         break :blk heap_dest.?;
     };
 
-    // Convert UTF-8 -> UTF-16
-    var utf16_pos: usize = undefined;
-    if (std.unicode.utf8ToUtf16Le(utf16_text_buffer, text)) |n| {
-        utf16_pos = n;
-        buildByteOffsetMap(byte_offset_map, text);
-    } else |_| {
-        utf16_pos = convertUtf8ToUtf16Tolerant(utf16_text_buffer, byte_offset_map, text);
-    }
+    // Convert UTF-8 -> UTF-16 and build the byte-offset map in ONE pass
+    // (bug #40: valid text used to be decoded twice).
+    const utf16_pos = convertUtf8ToUtf16Tolerant(utf16_text_buffer, byte_offset_map, text);
     if (utf16_pos < byte_offset_map.len) {
         byte_offset_map[utf16_pos] = @intCast(text.len);
     }
@@ -1875,4 +1881,122 @@ test "transliterateString sizing stays correct after i32 hardening (bug #38)" {
     const cafe = try transliterateString(gpa, "Café", rules.ICU_RULE_DEFAULT);
     defer gpa.free(cafe);
     try std.testing.expectEqualStrings("cafe", cafe);
+}
+
+// Bug #40: tokenizeText used to decode every valid document twice
+// (std.unicode.utf8ToUtf16Le, then buildByteOffsetMap re-decoding the whole
+// string) and kept two copies of the same tolerant decode loop. The single
+// remaining converter must therefore be an exact stand-in for the std
+// converter on valid UTF-8 AND produce the byte-offset map the removed
+// function did. This differential test checks both against independent
+// references, across ASCII-only, mixed-width, astral and >512-byte inputs
+// (so the ASCII fast path, the multi-byte path and the heap-sized buffers are
+// all exercised).
+fn expectConverterMatchesReference(gpa: std.mem.Allocator, text: []const u8) !void {
+    const cap = text.len * 2 + 1; // same sizing as tokenizeText's req_u16_cap
+    const got_u16 = try gpa.alloc(c.UChar, cap);
+    defer gpa.free(got_u16);
+    const got_map = try gpa.alloc(i32, cap);
+    defer gpa.free(got_map);
+    const want_u16 = try gpa.alloc(c.UChar, cap);
+    defer gpa.free(want_u16);
+
+    const n = convertUtf8ToUtf16Tolerant(got_u16, got_map, text);
+    const want_n = try std.unicode.utf8ToUtf16Le(want_u16, text);
+    try std.testing.expectEqual(want_n, n);
+    try std.testing.expectEqualSlices(c.UChar, want_u16[0..want_n], got_u16[0..n]);
+
+    // Reference map: walk the codepoints; every UTF-16 unit of a codepoint
+    // maps to that codepoint's first UTF-8 byte.
+    var it = (try std.unicode.Utf8View.init(text)).iterator();
+    var u: usize = 0;
+    var byte_off: usize = 0;
+    while (it.nextCodepointSlice()) |cp_bytes| {
+        const cp = try std.unicode.utf8Decode(cp_bytes);
+        const units: usize = if (cp <= 0xFFFF) 1 else 2;
+        for (0..units) |k| {
+            try std.testing.expectEqual(@as(i32, @intCast(byte_off)), got_map[u + k]);
+        }
+        u += units;
+        byte_off += cp_bytes.len;
+    }
+    try std.testing.expectEqual(n, u);
+}
+
+test "convertUtf8ToUtf16Tolerant matches std converter and offset map on valid UTF-8 (bug #40)" {
+    const gpa = std.testing.allocator;
+
+    try expectConverterMatchesReference(gpa, "");
+    try expectConverterMatchesReference(gpa, "hello world");
+    try expectConverterMatchesReference(gpa, "日本語のテスト");
+    try expectConverterMatchesReference(gpa, "héllo wörld Ελληνικά русский");
+    try expectConverterMatchesReference(gpa, "a🌍b😀c🎉"); // surrogate pairs between ASCII
+    try expectConverterMatchesReference(gpa, "🌍"); // astral char alone, 4 bytes -> 2 units
+
+    // > 512 bytes: forces the heap-sized path and a long ASCII run broken by
+    // multi-byte characters.
+    var big: std.ArrayList(u8) = .empty;
+    defer big.deinit(gpa);
+    for (0..40) |_| try big.appendSlice(gpa, "ascii run of plain text, ");
+    try big.appendSlice(gpa, "é");
+    for (0..40) |_| try big.appendSlice(gpa, "more ascii text ");
+    try big.appendSlice(gpa, "🌍 tail");
+    try std.testing.expect(big.items.len > 512);
+    try expectConverterMatchesReference(gpa, big.items);
+}
+
+test "convertUtf8ToUtf16Tolerant tolerates malformed input and keeps offsets (bug #40)" {
+    var u16buf: [32]c.UChar = undefined;
+    var map: [32]i32 = undefined;
+
+    // A lone byte that cannot start a sequence keeps its byte value as the
+    // codepoint (pre-existing behavior, relied on by test_malformed_utf8.sql).
+    var n = convertUtf8ToUtf16Tolerant(&u16buf, &map, "a\xFFb");
+    try std.testing.expectEqual(@as(usize, 3), n);
+    try std.testing.expectEqualSlices(c.UChar, &.{ 'a', 0x00FF, 'b' }, u16buf[0..n]);
+    try std.testing.expectEqualSlices(i32, &.{ 0, 1, 2 }, map[0..n]);
+
+    // Truncated 3-byte sequence at end of input: one U+FFFD for the stub
+    // (std's utf8Decode would assert on the short slice).
+    n = convertUtf8ToUtf16Tolerant(&u16buf, &map, "x\xE2\x82");
+    try std.testing.expectEqual(@as(usize, 2), n);
+    try std.testing.expectEqualSlices(c.UChar, &.{ 'x', 0xFFFD }, u16buf[0..n]);
+    try std.testing.expectEqualSlices(i32, &.{ 0, 1 }, map[0..n]);
+
+    // Truncated 2-byte and 4-byte leads at end of input behave the same way.
+    n = convertUtf8ToUtf16Tolerant(&u16buf, &map, "y\xC3");
+    try std.testing.expectEqualSlices(c.UChar, &.{ 'y', 0xFFFD }, u16buf[0..n]);
+    n = convertUtf8ToUtf16Tolerant(&u16buf, &map, "z\xF0\x9F\x8C");
+    try std.testing.expectEqualSlices(c.UChar, &.{ 'z', 0xFFFD }, u16buf[0..n]);
+
+    // Lead byte whose continuation bytes are invalid: the whole lead-sized
+    // span (here 3 bytes) collapses to one U+FFFD, as before, and the next
+    // character's offset stays exact.
+    n = convertUtf8ToUtf16Tolerant(&u16buf, &map, "\xE2\x41\x41q");
+    try std.testing.expectEqualSlices(c.UChar, &.{ 0xFFFD, 'q' }, u16buf[0..n]);
+    try std.testing.expectEqualSlices(i32, &.{ 0, 3 }, map[0..n]);
+
+    // Valid astral char after ASCII: both surrogate units map to byte 1.
+    n = convertUtf8ToUtf16Tolerant(&u16buf, &map, "x\u{1F30D}y");
+    try std.testing.expectEqual(@as(usize, 4), n);
+    try std.testing.expectEqualSlices(c.UChar, &.{ 'x', 0xD83C, 0xDF0D, 'y' }, u16buf[0..n]);
+    try std.testing.expectEqualSlices(i32, &.{ 0, 1, 1, 5 }, map[0..n]);
+}
+
+test "convertUtf8ToUtf16Tolerant never writes past either output (bug #40)" {
+    var u16buf: [3]c.UChar = undefined;
+    var map: [8]i32 = undefined;
+
+    // The astral char needs 2 units but only 1 remains: stop cleanly, in
+    // bounds, without a half-written pair.
+    var n = convertUtf8ToUtf16Tolerant(&u16buf, &map, "ab\u{1F30D}");
+    try std.testing.expectEqual(@as(usize, 2), n);
+    try std.testing.expectEqualSlices(c.UChar, &.{ 'a', 'b' }, u16buf[0..n]);
+
+    // A map shorter than the UTF-16 buffer bounds the ASCII fast path too.
+    var wide: [8]c.UChar = undefined;
+    var short_map: [2]i32 = undefined;
+    n = convertUtf8ToUtf16Tolerant(&wide, &short_map, "abcd");
+    try std.testing.expectEqual(@as(usize, 2), n);
+    try std.testing.expectEqualSlices(i32, &.{ 0, 1 }, &short_map);
 }

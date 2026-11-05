@@ -120,8 +120,9 @@ This produces shared dynamic libraries in `zig-out/lib/` (symlinked to `./build`
 
 ### 2. Run Tests
 ```bash
-# Run unit tests
+# Run unit tests (runs in both ReleaseSafe and ReleaseFast)
 zig build test
+# (Optional: run a specific tier via `zig build test-safe` or `zig build test-fast`)
 
 # Run ICU transliterator tests
 zig build run-transliterator

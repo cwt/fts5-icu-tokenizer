@@ -77,6 +77,20 @@ zig build -Dlocale=ja
 
 ## Test Scripts
 
+### Zig Unit Tests
+Runs the Zig unit test suite under **both `ReleaseSafe` and `ReleaseFast`**:
+- `ReleaseSafe`: Catches bounds checks, integer overflow, and panic-checked behavior.
+- `ReleaseFast`: Catches optimization bugs, inlining assumptions, and dead-code elimination regressions under aggressive LLVM optimizations.
+
+```bash
+# Run unit tests across both ReleaseSafe and ReleaseFast
+zig build test
+
+# Or run a specific tier
+zig build test-safe  # ReleaseSafe mode only
+zig build test-fast  # ReleaseFast mode only
+```
+
 ### `test.sh`
 Builds (fresh by default) and tests the universal and Japanese tokenizers (API v2).
 Supports `--rebuild` to skip clearing cache.

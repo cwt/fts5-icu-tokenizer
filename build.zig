@@ -187,31 +187,53 @@ pub fn build(b: *std.Build) void {
 
     // Unit tests
     //
-    // Bug #25: the suite previously reused `root_module` and therefore ran
-    // under the default ReleaseFast, compiling out safety-checked UB
-    // (integer overflow, OOB slice panics) exactly where regression tests
-    // must catch it. Give the tests their own Debug-optimized module;
-    // shipped libraries keep ReleaseFast.
-    const test_root_module = b.createModule(.{
-        .root_source_file = b.path("src/fts5_icu.zig"),
-        .target = target,
-        .optimize = release_safe_mode,
-        .imports = &.{
-            .{ .name = "c", .module = c_mod },
-            .{ .name = "c_icu", .module = c_icu_mod },
-            .{ .name = "build_options", .module = options_mod },
-        },
-    });
-    linkModule(test_root_module, b, is_macos);
+    // Unit tests: run under both ReleaseSafe and ReleaseFast.
+    // - ReleaseSafe: validates runtime safety checks (bounds, overflow, panics).
+    // - ReleaseFast: validates behavior under aggressive LLVM optimizations, inlining, and vectorization.
+    const createTestStep = struct {
+        fn apply(
+            builder: *std.Build,
+            name: []const u8,
+            step_name: []const u8,
+            step_desc: []const u8,
+            opt_mode: OptimizeMode,
+            target_step: std.Build.ResolvedTarget,
+            c_m: *std.Build.Module,
+            c_icu_m: *std.Build.Module,
+            opts_m: *std.Build.Module,
+            macos: bool,
+        ) *std.Build.Step.Run {
+            const mod = builder.createModule(.{
+                .root_source_file = builder.path("src/fts5_icu.zig"),
+                .target = target_step,
+                .optimize = opt_mode,
+                .imports = &.{
+                    .{ .name = "c", .module = c_m },
+                    .{ .name = "c_icu", .module = c_icu_m },
+                    .{ .name = "build_options", .module = opts_m },
+                },
+            });
+            linkModule(mod, builder, macos);
 
-    const unit_tests = b.addTest(.{
-        .root_module = test_root_module,
-    });
-    configureArtifact(unit_tests, false);
+            const t = builder.addTest(.{
+                .name = name,
+                .root_module = mod,
+            });
+            configureArtifact(t, false);
 
-    const run_unit_tests = b.addRunArtifact(unit_tests);
-    const test_step = b.step("test", "Run unit tests");
-    test_step.dependOn(&run_unit_tests.step);
+            const run = builder.addRunArtifact(t);
+            const step = builder.step(step_name, step_desc);
+            step.dependOn(&run.step);
+            return run;
+        }
+    }.apply;
+
+    const run_safe = createTestStep(b, "test_safe", "test-safe", "Run unit tests in ReleaseSafe mode", release_safe_mode, target, c_mod, c_icu_mod, options_mod, is_macos);
+    const run_fast = createTestStep(b, "test_fast", "test-fast", "Run unit tests in ReleaseFast mode", release_fast_mode, target, c_mod, c_icu_mod, options_mod, is_macos);
+
+    const test_step = b.step("test", "Run unit tests in both ReleaseSafe and ReleaseFast modes");
+    test_step.dependOn(&run_safe.step);
+    test_step.dependOn(&run_fast.step);
 
     // Bug #42: helper for compiling and registering test runner executables
     const addTestRunner = struct {

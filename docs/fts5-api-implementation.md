@@ -137,8 +137,9 @@ zig build -Dlocale=ja
 # Run SQLite test suite
 ./scripts/test_all.sh
 
-# Run Zig unit and integration tests
+# Run Zig unit tests (runs under both ReleaseSafe and ReleaseFast)
 zig build test
+# (Or target a specific mode: zig build test-safe / zig build test-fast)
 zig build run-transliterator
 zig build run-locale-tests
 ```

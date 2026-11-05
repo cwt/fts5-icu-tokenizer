@@ -19,97 +19,55 @@ This document provides an overview of all the scripts in the `scripts/` director
 ## Build Scripts
 
 ### `build.sh`
-Builds the FTS5 ICU tokenizer for a specific locale or the universal tokenizer.
+Builds all supported locale-specific tokenizers and the universal tokenizer (API v1 and v2).
+Cleans `.cache`, `.zig-cache`, `build`, and `zig-out` first (unless `--rebuild` is
+given), then symlinks `./build` to `zig-out/lib`.
+Supports **Zig 0.16.0, 0.17.0, and 0.17.1**.
+
+Options:
+- (no option) — clean build of all tokenizers (API v1 + v2, default)
+- `--rebuild` — reuses the cache and previous `zig-out` instead of clearing them
+
+Environment Variables:
+- `ZIG` — path to the Zig compiler binary (default: `"zig"`).
+  Example: `ZIG=/path/to/zig-0.17.1/zig ./scripts/build.sh`
 
 Usage:
 ```bash
-# Build the universal tokenizer
+# Clean build of all tokenizers (default)
 ./scripts/build.sh
 
-# Build for a specific locale (e.g., Japanese)
-./scripts/build.sh ja
+# Quick rebuild without clearing the cache
+./scripts/build.sh --rebuild
+
+# Build using a specific Zig compiler version
+ZIG=/path/to/zig-0.17.1/zig ./scripts/build.sh
 ```
-
-### `build_all.sh`
-Builds all supported locale-specific tokenizers and the universal tokenizer using API v2 (current).
-
-Usage:
-```bash
-./scripts/build_all.sh
-```
-
-This script:
-1. Builds separate shared libraries for each locale with optimized rules (API v2)
-2. Places all libraries in the `build/` directory
-3. Shows progress and any warnings during the build process
-
-### `build_legacy.sh`
-Builds the FTS5 ICU tokenizer using API v1 (legacy) for a specific locale or the universal tokenizer.
-
-Usage:
-```bash
-# Build the universal tokenizer (API v1)
-./scripts/build_legacy.sh
-
-# Build for a specific locale (e.g., Japanese, API v1)
-./scripts/build_legacy.sh ja
-```
-
-### `build_all_legacy.sh`
-Builds all supported locale-specific tokenizers and the universal tokenizer using API v1 (legacy) only.
-
-Usage:
-```bash
-./scripts/build_all_legacy.sh
-```
-
-This script:
-1. Builds separate shared libraries for each locale with optimized rules (API v1 only)
-2. Places all libraries in the `build/` directory with appropriate suffixes
-3. Shows progress and any warnings during the build process
-
-### `build_all_with_legacy.sh`
-Builds all supported locale-specific tokenizers and the universal tokenizer for both API v1 and API v2.
-
-Usage:
-```bash
-./scripts/build_all_with_legacy.sh
-```
-
-This script:
-1. Builds separate shared libraries for each locale with optimized rules (API v1 and API v2)
-2. Places all libraries in the `build/` directory with appropriate suffixes
-3. Shows progress and any warnings during the build process
-
-### `build_all_with_clang.sh`
-Builds all supported locale-specific tokenizers using the Clang compiler to check portability.
-
-Usage:
-```bash
-./scripts/build_all_with_clang.sh
-```
-
-This script:
-1. Uses Clang instead of GCC for compilation
-2. Builds all tokenizers to ensure cross-compiler compatibility
-3. Performs the same operations as `build_all.sh` but with Clang
 
 ## Test Scripts
 
 ### `test.sh`
-Builds and runs tests for the universal tokenizer and Japanese tokenizer (API v2 by default).
+Builds (fresh by default) and runs tests for the universal tokenizer and Japanese tokenizer (API v2).
 
 Usage:
 ```bash
+# Clean build + test
 ./scripts/test.sh
+
+# Rebuild (cached) + test
+./scripts/test.sh --rebuild
 ```
 
 ### `test_legacy.sh`
-Builds and runs tests for the universal tokenizer and Japanese tokenizer using API v1 (legacy).
+Builds (fresh by default) and runs tests for the universal tokenizer and Japanese tokenizer using API v1 (legacy).
 
 Usage:
 ```bash
+# Clean build + test legacy
 ./scripts/test_legacy.sh
+
+# Rebuild (cached) + test legacy
+./scripts/test_legacy.sh --rebuild
 ```
 
 ### `test_all.sh`

@@ -1,7 +1,7 @@
 ---
 type: api_spec
 title: "FTS5 API implementation"
-description: "FTS5 v1/v2 structs, tokenizer callbacks, and extension registration in Zig 0.16.0 and 0.17.0."
+description: "FTS5 v1/v2 structs, tokenizer callbacks, and extension registration in Zig 0.16.0, 0.17.0, and 0.17.1."
 status: stable
 resource: src/fts5_icu.zig
 sources:
@@ -13,9 +13,9 @@ stale_after: 2027-03-12T00:00:00Z
 ---
 
 
-# FTS5 ICU Tokenizer for SQLite - FTS5 API Implementation (Zig 0.16.0 & 0.17.0)
+# FTS5 ICU Tokenizer for SQLite - FTS5 API Implementation (Zig 0.16.0, 0.17.0 & 0.17.1)
 
-This project provides FTS5 tokenizer extensions for SQLite implemented in **Zig 0.16.0** (with verified forward compatibility for **Zig 0.17.0**). It supports both the primary **FTS5 v2 API** (`fts5_tokenizer_v2`) and the legacy **FTS5 v1 API** (`fts5_tokenizer`) using the International Components for Unicode (ICU) library.
+This project provides FTS5 tokenizer extensions for SQLite implemented in **Zig 0.16.0** (with verified forward compatibility for **Zig 0.17.0** and **0.17.1**). It supports both the primary **FTS5 v2 API** (`fts5_tokenizer_v2`) and the legacy **FTS5 v1 API** (`fts5_tokenizer`) using the International Components for Unicode (ICU) library.
 
 ---
 
@@ -123,14 +123,13 @@ pub export fn sqlite3_fts5icu_init(
 
 ### Building with Zig
 ```bash
-# Build universal and all locale tokenizers (v2 API)
+# Build universal and all locale tokenizers (both API v1 and v2)
 zig build
+# or using the helper script:
+./scripts/build.sh
 
-# Build specific locale
+# Build specific locale (both v2 and v1 legacy)
 zig build -Dlocale=ja
-
-# Build legacy v1 API version
-zig build -Dapi_version=v1
 ```
 
 ### Running Tests

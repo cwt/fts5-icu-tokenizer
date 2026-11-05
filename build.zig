@@ -5,11 +5,10 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const OptimizeMode = std.builtin.OptimizeMode;
     const release_fast_mode: OptimizeMode = if (@hasField(OptimizeMode, "fast")) .fast else .ReleaseFast;
-    const debug_mode: OptimizeMode = if (@hasField(OptimizeMode, "debug")) .debug else .Debug;
+    const release_safe_mode: OptimizeMode = if (@hasField(OptimizeMode, "release_safe")) .release_safe else .ReleaseSafe;
     const optimize = b.option(OptimizeMode, "optimize", "Optimization mode") orelse release_fast_mode;
 
     const locale = b.option([]const u8, "locale", "Tokenizer locale (e.g. ja, zh, th, ar, ru, he, el)") orelse "";
-    const api_version = b.option([]const u8, "api_version", "FTS5 API version (v1 or v2)") orelse "v2";
     const version_str = "7.2.1";
 
     const lto_enabled = !target.result.os.tag.isDarwin();
@@ -22,7 +21,7 @@ pub fn build(b: *std.Build) void {
     // Build options module for default library
     const options = b.addOptions();
     options.addOption([]const u8, "locale", locale);
-    options.addOption([]const u8, "api_version", api_version);
+    options.addOption([]const u8, "api_version", "v2");
     options.addOption([]const u8, "version", version_str);
     const options_mod = options.createModule();
 
@@ -168,7 +167,7 @@ pub fn build(b: *std.Build) void {
 
     // Dynamic library build (fts5_icu v2 and v1 legacy)
     const lib_name = if (locale.len > 0) b.fmt("fts5_icu_{s}", .{locale}) else "fts5_icu";
-    addTokenizerLibrary(b, lib_name, locale, api_version, target, optimize, c_mod, c_icu_mod, lto_enabled, is_macos);
+    addTokenizerLibrary(b, lib_name, locale, "v2", target, optimize, c_mod, c_icu_mod, lto_enabled, is_macos);
 
     const lib_legacy_name = if (locale.len > 0) b.fmt("fts5_icu_{s}_legacy", .{locale}) else "fts5_icu_legacy";
     addTokenizerLibrary(b, lib_legacy_name, locale, "v1", target, optimize, c_mod, c_icu_mod, lto_enabled, is_macos);
@@ -196,7 +195,7 @@ pub fn build(b: *std.Build) void {
     const test_root_module = b.createModule(.{
         .root_source_file = b.path("src/fts5_icu.zig"),
         .target = target,
-        .optimize = debug_mode,
+        .optimize = release_safe_mode,
         .imports = &.{
             .{ .name = "c", .module = c_mod },
             .{ .name = "c_icu", .module = c_icu_mod },

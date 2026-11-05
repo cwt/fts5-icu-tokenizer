@@ -32,18 +32,38 @@ The tokenizer supports the following locales:
 
 ## Build Scripts
 
-### `build_all.sh`
-Builds all supported locale-specific tokenizers and the universal tokenizer.
+### `build.sh`
+Builds all supported locale-specific tokenizers and the universal tokenizer (both API v1 and API v2).
+Supports **Zig 0.16.0, 0.17.0, and 0.17.1**.
+
+Options:
+- (no option) — clean build of all tokenizers (clears cache and `zig-out` first)
+- `--rebuild` — reuses compiler cache and previous `zig-out` for faster iterative builds
+
+Environment Variables:
+- `ZIG` — path to the Zig compiler binary (default: `"zig"`).
+  Example: `ZIG=/path/to/zig-0.17.1/zig ./scripts/build.sh`
+
+All libraries are placed in `zig-out/lib/` and symlinked to `./build`.
+
+#### Library Naming Convention
+
+| Library Pattern | FTS5 API | Target Environment |
+| :--- | :--- | :--- |
+| `libfts5_icu*.so` | **API v2** (`fts5_tokenizer_v2`) | Modern SQLite ≥ 3.47.0 (locale-aware) |
+| `libfts5_icu*_legacy.so` | **API v1** (`fts5_tokenizer`) | SQLite < 3.47.0 & LTS distros (EL8/EL9, Ubuntu 22.04/24.04, Debian 11/12) |
 
 Usage:
 ```bash
-./build_all.sh
-```
+# Clean build of all tokenizers (API v1 + v2, default)
+./scripts/build.sh
 
-This script will:
-1. Build separate shared libraries for each locale with optimized rules
-2. Place all libraries in the `build/` directory
-3. Show progress and any warnings during the build process
+# Quick rebuild without clearing the cache
+./scripts/build.sh --rebuild
+
+# Build using a specific Zig compiler version
+ZIG=/path/to/zig-0.17.1/zig ./scripts/build.sh
+```
 
 ### Building Individual Locales
 You can build individual locales using `zig build` or `scripts/build.sh`:
@@ -52,36 +72,60 @@ You can build individual locales using `zig build` or `scripts/build.sh`:
 # Build for a specific locale (e.g., Japanese)
 zig build -Dlocale=ja
 
-# Or using the build script
-./scripts/build.sh ja
-
 # The resulting library will be in zig-out/lib/ (and symlinked in ./build)
 ```
 
 ## Test Scripts
 
+### `test.sh`
+Builds (fresh by default) and tests the universal and Japanese tokenizers (API v2).
+Supports `--rebuild` to skip clearing cache.
+
+```bash
+# Clean build + test
+./scripts/test.sh
+
+# Rebuild (cached) + test
+./scripts/test.sh --rebuild
+```
+
+### `test_legacy.sh`
+Builds (fresh by default) and tests the universal and Japanese tokenizers using API v1 (legacy).
+Supports `--rebuild` to skip clearing cache.
+
+```bash
+# Clean build + test legacy
+./scripts/test_legacy.sh
+
+# Rebuild (cached) + test legacy
+./scripts/test_legacy.sh --rebuild
+```
+
 ### `test_all.sh`
-Tests all built libraries with appropriate sample text.
+Tests all built API v2 libraries with appropriate sample text.
 
 Usage:
 ```bash
-./test_all.sh
+./scripts/test_all.sh
 ```
 
-This script will:
-1. Test the universal tokenizer with mixed language content
-2. Test each locale-specific tokenizer with sample text in that language
-3. Report success or failure for each test
+### `test_all_legacy.sh`
+Tests all built API v1 (legacy) libraries with appropriate sample text.
+
+Usage:
+```bash
+./scripts/test_all_legacy.sh
+```
 
 ### Testing Individual Locales
 You can also test individual locales using the specific test scripts:
 
 ```bash
 # Test Japanese tokenizer
-sqlite3 < test_ja_tokenizer.sql
+sqlite3 < tests/test_ja_tokenizer.sql
 
 # Test Chinese tokenizer
-sqlite3 < test_zh_tokenizer.sql
+sqlite3 < tests/test_zh_tokenizer.sql
 ```
 
 ## Locale Aliases
@@ -93,14 +137,14 @@ For compatibility, the following locale aliases are supported:
 - **iw** → **he** (Hebrew)
 - **gr** → **el** (Greek)
 
-When using these aliases, you'll see a warning message during the build process, and the resulting library will use the standard ICU locale code.
+When using these aliases, the resulting library will use the standard ICU locale code.
 
 ## Function Names
 
 Each built library exports a function with a name matching the SQLite FTS5 extension convention:
-- For locale `ja`: `sqlite3_ftsicuja_init`
-- For locale `zh`: `sqlite3_ftsicuzh_init`
-- For universal tokenizer: `sqlite3_ftsicu_init`
+- For locale `ja`: `sqlite3_ftsicuja_init` (legacy: `sqlite3_ftsicuja_legacy_init`)
+- For locale `zh`: `sqlite3_ftsicuzh_init` (legacy: `sqlite3_ftsicuzh_legacy_init`)
+- For universal tokenizer: `sqlite3_ftsicu_init` (legacy: `sqlite3_ftsicu_legacy_init`)
 
 This ensures compatibility with SQLite's extension loading mechanism.
 
@@ -109,13 +153,13 @@ This ensures compatibility with SQLite's extension loading mechanism.
 The project includes scripts for maintaining code quality:
 
 ### `code-format.sh`
-Formats all source code files using clang-format. Usage:
+Formats all Zig source code files using `zig fmt .`. Usage:
 ```bash
 ./scripts/code-format.sh
 ```
 
 ### `lint-check.sh`
-Performs static code analysis using cppcheck. Usage:
+Performs static AST checks on Zig source files using `zig ast-check`. Usage:
 ```bash
 ./scripts/lint-check.sh
 ```

@@ -3,7 +3,7 @@ FROM almalinux:9
 RUN dnf install -y epel-release && dnf install -y sqlite-devel libicu-devel gcc wget xz && dnf clean all
 
 RUN ARCH=$(uname -m) && \
-    for VER in 0.16.0 0.17.0; do \
+    for VER in 0.16.0 0.17.1; do \
         wget -q "https://ziglang.org/download/${VER}/zig-${ARCH}-linux-${VER}.tar.xz" && \
         tar xf "zig-${ARCH}-linux-${VER}.tar.xz" -C /usr/local && \
         ln -s "/usr/local/zig-${ARCH}-linux-${VER}/zig" "/usr/local/bin/zig-${VER}" && \

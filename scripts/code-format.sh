@@ -1,3 +1,6 @@
 #!/bin/bash
-echo "Formatting Zig source code with 'zig fmt .'..."
-zig fmt .
+# Path to zig executable binary
+ZIG=${ZIG:-"zig"}
+
+echo "Formatting Zig source code with '${ZIG} fmt .'..."
+${ZIG} fmt .

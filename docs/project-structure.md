@@ -43,12 +43,11 @@ Documentation files (see [docs/index.md](index.md)):
 
 ### `scripts/`
 Utility scripts for building and testing:
-- `build.sh` - Builds the primary tokenizer
-- `build_all.sh` - Builds all supported locales and the universal tokenizer (v2 API)
-- `build_legacy.sh` - Builds the primary tokenizer using API v1 (legacy)
-- `build_all_legacy.sh` - Builds all supported locales (API v1)
-- `test.sh` - Tests default universal & Japanese tokenizers
-- `test_all.sh` - Tests all built libraries
+- `build.sh` - Builds all supported locales and the universal tokenizer (`--rebuild` to skip cache clearing)
+- `test.sh` - Tests default universal & Japanese tokenizers (`--rebuild` supported)
+- `test_legacy.sh` - Tests API v1 legacy universal & Japanese tokenizers (`--rebuild` supported)
+- `test_all.sh` - Tests all built API v2 libraries
+- `test_all_legacy.sh` - Tests all built API v1 legacy libraries
 - `code-format.sh` - Formats code using `zig fmt`
 - `lint-check.sh` - Checks source code using `zig ast-check`
 
@@ -70,7 +69,7 @@ Test SQL scripts for each supported locale:
 ### Building
 To build all tokenizers:
 ```bash
-./scripts/build_all.sh
+./scripts/build.sh
 ```
 
 ### Testing

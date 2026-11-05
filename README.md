@@ -1,9 +1,15 @@
-# FTS5 ICU Tokenizer for SQLite (Zig 0.16.0 & 0.17.0 Edition)
+# FTS5 ICU Tokenizer for SQLite (Zig 0.16.0, 0.17.0 & 0.17.1 Edition)
+
+
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Zig Compatibility](https://img.shields.io/badge/zig-0.16.0%20%7C%200.17.0%20%7C%200.17.1-red.svg)](#prerequisites)
+[![Ask DeepWiki](https://img.shields.io/badge/Ask-DeepWiki-blue)](https://deepwiki.com/cwt/fts5-icu-tokenizer)
+<!-- [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/cwt/fts5-icu-tokenizer) -->
 
 Version **7.2.1**
 
 
-This project provides custom FTS5 tokenizers for SQLite implemented in **Zig 0.16.0** (with verified forward compatibility for **Zig 0.17.0**) using the International Components for Unicode (ICU) library to provide robust word segmentation and text normalization across multiple languages.
+This project provides custom FTS5 tokenizers for SQLite implemented in **Zig 0.16.0** (with verified forward compatibility for **Zig 0.17.0** and **0.17.1**) using the International Components for Unicode (ICU) library to provide robust word segmentation and text normalization across multiple languages.
 
 ---
 
@@ -51,7 +57,7 @@ This project was originally written in C with CMake. The rewrite to **Zig 0.16.0
 
 ## Key Features
 
-- **Built with Zig 0.16.0**: High-performance, memory-safe, zero-allocation runtime overhead.
+- **Built with Zig (0.16.0, 0.17.0 & 0.17.1)**: High-performance, memory-safe, zero-allocation runtime overhead.
 - **FTS5 API v1 & v2 Support**: Full support for both current API v2 and legacy API v1 extension entrypoints.
 - **ICU Word Segmentation & Transliteration**:
   - Word boundary iteration (`ubrk`)
@@ -66,7 +72,7 @@ This project was originally written in C with CMake. The rewrite to **Zig 0.16.0
 ## Quick Start
 
 ### Prerequisites
-- **Zig** (version `0.16.0` or higher)
+- **Zig** (`0.16.0`, `0.17.0`, or `0.17.1`)
 - **SQLite3** development libraries
 - **ICU** development libraries (`libicu-uc`, `libicu-i18n`)
 
@@ -85,18 +91,32 @@ This project was originally written in C with CMake. The rewrite to **Zig 0.16.0
 
 ### 1. Build All Tokenizer Libraries
 ```bash
+# Build with default zig in PATH
 zig build
+
+# Or use the build helper (cleans cache by default; --rebuild skips cache cleaning)
+./scripts/build.sh
+
+# Or specify a custom Zig binary / version (e.g. Zig 0.17.1)
+ZIG=/path/to/zig-0.17.1/zig ./scripts/build.sh
 ```
-This produces shared dynamic libraries in `zig-out/lib/`:
-- `libfts5_icu.so` (or `.dylib`) — Universal multi-language tokenizer (v2 & legacy v1 entrypoints)
-- `libfts5_icu_ja.so` — Japanese (`icu_ja`)
-- `libfts5_icu_zh.so` — Chinese (`icu_zh`)
-- `libfts5_icu_th.so` — Thai (`icu_th`)
-- `libfts5_icu_ko.so` — Korean (`icu_ko`)
-- `libfts5_icu_ar.so` — Arabic (`icu_ar`)
-- `libfts5_icu_ru.so` — Russian (`icu_ru`)
-- `libfts5_icu_he.so` — Hebrew (`icu_he`)
-- `libfts5_icu_el.so` — Greek (`icu_el`)
+This produces shared dynamic libraries in `zig-out/lib/` (symlinked to `./build`):
+- **API v2 (SQLite ≥ 3.47.0)**:
+  - `libfts5_icu.so` (or `.dylib`) — Universal multi-language tokenizer
+  - `libfts5_icu_ja.so` — Japanese (`icu_ja`)
+  - `libfts5_icu_zh.so` — Chinese (`icu_zh`)
+  - `libfts5_icu_th.so` — Thai (`icu_th`)
+  - `libfts5_icu_ko.so` — Korean (`icu_ko`)
+  - `libfts5_icu_ar.so` — Arabic (`icu_ar`)
+  - `libfts5_icu_ru.so` — Russian (`icu_ru`)
+  - `libfts5_icu_he.so` — Hebrew (`icu_he`)
+  - `libfts5_icu_el.so` — Greek (`icu_el`)
+- **API v1 Legacy (SQLite < 3.47.0 / LTS distros like EL8/EL9, Ubuntu 22.04/24.04, Debian 11/12)**:
+  - `libfts5_icu_legacy.so` — Universal multi-language tokenizer (legacy)
+  - `libfts5_icu_<locale>_legacy.so` — Locale-specific tokenizers (legacy)
+
+> [!NOTE]
+> Library filenames follow a strict 1:1 contract: un-suffixed libraries are always API v2; libraries with the `_legacy` suffix are always API v1.
 
 ### 2. Run Tests
 ```bash
@@ -112,8 +132,11 @@ zig build run-locale-tests
 # Run locale tokenizer test
 zig build run-tokenizer-test
 
-# Run full SQL test suite
-./scripts/test_all.sh
+# Run full SQL test suites
+./scripts/test.sh             # Quick test of universal & Japanese (API v2; supports --rebuild)
+./scripts/test_legacy.sh      # Quick test of universal & Japanese (API v1; supports --rebuild)
+./scripts/test_all.sh         # Comprehensive test across all locales (API v2)
+./scripts/test_all_legacy.sh  # Comprehensive test across all locales (API v1 legacy)
 ```
 
 ### Containerized Builds
@@ -137,27 +160,30 @@ podman build -f .container/Containerfile.el10 -t fts5-icu:el10 .
 podman build -f .container/Containerfile.el9 -t fts5-icu:el9 .
 
 # Build inside container
-podman run --rm -v "$PWD:/workspace:Z" fts5-icu:f44 zig build
+podman run --rm -v "$PWD:/workspace:Z" fts5-icu:f44 ./scripts/build.sh
+
+# Or build with a specific Zig version inside the container
+podman run --rm -v "$PWD:/workspace:Z" -e ZIG=/usr/local/bin/zig-0.17.1 fts5-icu:f44 ./scripts/build.sh
 ```
 
 ### Running Tests Inside Containers
 
-Once an image is built, mount the project and run the full test suite:
+Once an image is built, mount the project and run the test suite:
 
 ```bash
 # Fedora 44 — zig from dnf, no extra download needed
 podman run --rm -v "$PWD:/workspace:Z" fts5-icu:f44 \
-    bash -c "zig build && bash scripts/test_all_legacy.sh"
+    bash -c "./scripts/build.sh && bash scripts/test_all_legacy.sh"
 
 # Other images — zig is already pre-downloaded inside the image
 podman run --rm -v "$PWD:/workspace:Z" fts5-icu:debian \
-    bash -c "zig build && bash scripts/test_all_legacy.sh"
+    bash -c "./scripts/build.sh && bash scripts/test_all_legacy.sh"
 podman run --rm -v "$PWD:/workspace:Z" fts5-icu:ubuntu \
-    bash -c "zig build && bash scripts/test_all_legacy.sh"
+    bash -c "./scripts/build.sh && bash scripts/test_all_legacy.sh"
 podman run --rm -v "$PWD:/workspace:Z" fts5-icu:el10 \
-    bash -c "zig build && bash scripts/test_all_legacy.sh"
+    bash -c "./scripts/build.sh && bash scripts/test_all_legacy.sh"
 podman run --rm -v "$PWD:/workspace:Z" fts5-icu:el9 \
-    bash -c "zig build && bash scripts/test_all_legacy.sh"
+    bash -c "./scripts/build.sh && bash scripts/test_all_legacy.sh"
 ```
 
 Each container rebuilds the project from scratch and runs every locale-specific
@@ -170,7 +196,7 @@ A one-liner to build and test across all five distros:
 for img in f44 debian ubuntu el10 el9; do
     echo "=== fts5-icu:$img ==="
     podman run --rm -v "$PWD:/workspace:Z" fts5-icu:$img \
-        bash -c "zig build 2>&1 | tail -1 && bash scripts/test_all_legacy.sh 2>&1 | grep -E 'SUCCESS|ERROR'"
+        bash -c "./scripts/build.sh 2>&1 | tail -1 && bash scripts/test_all_legacy.sh 2>&1 | grep -E 'SUCCESS|ERROR'"
     echo
 done
 ```
@@ -272,8 +298,9 @@ audit findings (bugs #26–#35), query optimization, and dual toolchain support:
   > **Note**: Universal-tokenizer (`icu`) indexes containing Chinese or
   > Japanese text should be rebuilt after upgrading (using the procedure
   > shown above). Latin-script tokens are byte-identical.
-- **Zig 0.16.0 & 0.17.0 Dual Toolchain Support**: Builds out of the box on both
-  Zig 0.16.0 and Zig 0.17.0 from the same source tree. Dynamic library search
+- **Zig 0.16.0, 0.17.0 & 0.17.1 Toolchain Support**: Builds out of the box on
+  Zig 0.16.0, 0.17.0, and 0.17.1 from the same source tree (configurable via
+  `ZIG=/path/to/zig-0.17.1/zig ./scripts/build.sh`). Dynamic library search
   paths probe standard multiarch FHS directories (`/usr/lib`,
   `/usr/lib/*-linux-gnu`, `/lib64`, musl triplets) cleanly.
 - **Query-Time Locale Cache (Bug #26)**: Added an atomics-based spin-yield cache

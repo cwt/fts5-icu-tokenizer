@@ -2,7 +2,7 @@
 
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Zig Compatibility](https://img.shields.io/badge/zig-0.16.0%20%7C%200.17.0%20%7C%200.17.1-red.svg)](#prerequisites)
+[![Zig Compatibility](https://img.shields.io/badge/zig-0.16.0%20%7C%200.17.1-F7A41D.svg)](#prerequisites)
 [![Ask DeepWiki](https://img.shields.io/badge/Ask-DeepWiki-blue)](https://deepwiki.com/cwt/fts5-icu-tokenizer)
 <!-- [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/cwt/fts5-icu-tokenizer) -->
 
